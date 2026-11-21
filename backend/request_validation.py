@@ -7,7 +7,7 @@ from fastapi import HTTPException, Request
 
 from backend.i18n import DEFAULT, t
 from backend.image_predictor import MAX_BYTES
-from backend.risk_engine import SYMPTOMS
+from backend.risk_engine import AGE_GROUPS, DURATIONS, SYMPTOMS
 
 MAX_REQUEST_BYTES = MAX_BYTES + 65536
 UPLOAD_TIMEOUT_SECONDS = 30
@@ -53,3 +53,17 @@ def parse_symptoms(raw: str, lang: str = DEFAULT) -> list[str]:
     ):
         raise HTTPException(422, t("symptoms_invalid", lang))
     return list(dict.fromkeys(ids))
+
+
+def parse_triage(form, lang: str = DEFAULT) -> dict:
+    """Optional answers that refine triage; a missing field means "not given"."""
+    values = {key: form.get(key) or None for key in ("age_group", "duration")}
+    confirmed = form.get("confirmed") or "false"
+    if (
+        any(len(form.getlist(key)) > 1 for key in ("age_group", "duration", "confirmed"))
+        or values["age_group"] not in (None, *AGE_GROUPS)
+        or values["duration"] not in (None, *DURATIONS)
+        or confirmed not in ("true", "false")
+    ):
+        raise HTTPException(422, t("triage_field_invalid", lang))
+    return {**values, "confirmed": confirmed == "true"}

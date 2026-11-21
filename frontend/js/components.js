@@ -27,12 +27,19 @@ export function renderSymptoms(symptoms, container) {
 
 export function renderResult({ image, risk }) {
   byId('level').textContent = t('priority', { label: risk.label });
-  byId('level').className = 'badge ' + (['high', 'medium', 'low'].includes(risk.level) ? risk.level : '');
+  byId('level').className = 'badge ' + (['red', 'yellow', 'green'].includes(risk.level) ? risk.level : '');
   byId('imageResult').textContent = image.label && Number.isFinite(image.confidence)
     ? t('imageLabel', { label: image.label, score: (image.confidence * 100).toFixed(1) })
     : t('noImageLabel');
   byId('imageMessage').textContent = image.message;
   byId('advice').textContent = risk.recommendation;
+  byId('destination').hidden = !risk.destination_text;
+  byId('destination').textContent = risk.destination_text ? t('goTo', { place: risk.destination_text }) : '';
+  byId('firstAidList').replaceChildren();
+  (risk.first_aid || []).forEach(step => textNode('li', step, byId('firstAidList')));
+  byId('firstAid').hidden = !risk.first_aid?.length;
+  byId('warnings').replaceChildren();
+  (risk.warnings || []).forEach(warning => textNode('li', warning, byId('warnings')));
   byId('reasons').replaceChildren();
   risk.reasons.forEach(reason => textNode('li', reason, byId('reasons')));
   const candidates = byId('candidates');

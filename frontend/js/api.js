@@ -25,9 +25,13 @@ export function fetchSymptoms(lang = getLang()) {
   return requestJSON(`/api/symptoms?lang=${encodeURIComponent(lang)}`, {}, 15000);
 }
 
-export function screenImage(file, symptoms, lang = getLang()) {
+/** triage: { age_group, duration, confirmed }; empty values are left out. */
+export function screenImage(file, symptoms, triage = {}, lang = getLang()) {
   const body = new FormData();
   body.append('image', file);
   body.append('symptoms', JSON.stringify(symptoms));
+  for (const [key, value] of Object.entries(triage)) {
+    if (value !== '' && value !== undefined && value !== null) body.append(key, String(value));
+  }
   return requestJSON(`/api/screen?lang=${encodeURIComponent(lang)}`, { method: 'POST', body });
 }

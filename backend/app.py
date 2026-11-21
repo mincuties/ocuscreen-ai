@@ -17,12 +17,12 @@ from backend.image_predictor import (
     load_artifacts,
     predict_image,
 )
-from backend.request_validation import buffer_upload, parse_symptoms
+from backend.request_validation import buffer_upload, parse_symptoms, parse_triage
 from backend.risk_engine import (
     KB,
     assess_risk,
-    localized_combinations,
     localized_symptoms,
+    pre_upload_rules,
 )
 
 log = logging.getLogger("ocuscreen")
@@ -69,8 +69,7 @@ def symptoms(lang: str | None = None):
     return {
         "lang": lang,
         "symptoms": localized_symptoms(lang),
-        "urgent_symptoms": KB["urgent_symptoms"],
-        "urgent_combinations": localized_combinations(lang),
+        "red_rules": pre_upload_rules(lang),
         "disclaimer": localize(KB["disclaimer"], lang),
     }
 
@@ -102,13 +101,14 @@ async def screen(request: Request):
     app.state.busy = True
     try:
         await buffer_upload(request, lang)
-        async with request.form(max_files=1, max_fields=2) as form:
+        async with request.form(max_files=1, max_fields=5) as form:
             if len(form.getlist("image")) != 1 or len(form.getlist("symptoms")) > 1:
                 raise HTTPException(422, t("single_fields", lang))
             file = form.get("image")
             if file is None or not hasattr(file, "read"):
                 raise HTTPException(422, t("missing_image", lang))
             ids = parse_symptoms(form.get("symptoms", "[]"), lang)
+            triage = parse_triage(form, lang)
             image_bytes = await file.read(MAX_BYTES + 1)
             try:
                 prediction = await run_in_threadpool(predict_image, image_bytes, lang)
@@ -121,7 +121,8 @@ async def screen(request: Request):
                 prediction = failed_prediction(
                     "unavailable", t("model_unavailable", lang)
                 )
-            result = {"image": prediction, "risk": assess_risk(prediction, ids, lang)}
+            risk = assess_risk(prediction, ids, lang, **triage)
+            result = {"image": prediction, "risk": risk}
             status_code = 503 if prediction["status"] == "unavailable" else 200
             return JSONResponse(result, status_code=status_code)
     finally:

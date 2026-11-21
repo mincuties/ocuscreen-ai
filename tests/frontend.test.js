@@ -1,11 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { validateFile, hasUrgentSymptoms, MAX_BYTES, MAX_INPUT_BYTES } from '../frontend/js/validation.js';
+import { validateFile, matchRules, ruleReason, MAX_BYTES, MAX_INPUT_BYTES } from '../frontend/js/validation.js';
 import { targetSize, MAX_EDGE } from '../frontend/js/resize.js';
 import { requestJSON, fetchSymptoms, screenImage } from '../frontend/js/api.js';
 import { MESSAGES, getLang, setLang, t, applyTranslations } from '../frontend/js/i18n.js';
 const kb = JSON.parse(readFileSync(new URL('../data/disease_knowledge.json', import.meta.url)));
+const cases = JSON.parse(readFileSync(new URL('./triage_cases.json', import.meta.url))).cases;
+// The same subset /api/symptoms sends as red_rules.
+const redRules = kb.triage_rules.filter(rule => rule.level === 'red' && !rule.image)
+  .map(rule => ({ ...rule, reason: rule.reason.en }));
 
 test('upload validation rejects unsupported, empty and oversized images', () => {
   assert.equal(validateFile({ size: MAX_BYTES, type: 'image/png' }), null);
@@ -22,20 +26,30 @@ test('large photos are downscaled to the upload size, small ones are left alone'
   // Small in pixels but too heavy: re-encode at the same size.
   assert.deepEqual(targetSize(1500, 1000, MAX_BYTES + 1), { width: 1500, height: 1000 });
 });
-test('pre-inference warnings match image-independent knowledge rules', () => {
-  const warn = ids => hasUrgentSymptoms(ids, kb.urgent_symptoms, kb.urgent_combinations);
-  assert.equal(warn([]), false);
-  assert.equal(warn(['itch']), false);
-  assert.equal(warn(['contacts']), false);
-  for (const ids of [['vision_loss'], ['contacts', 'red_eye'], ['fever', 'pain_movement'], ['yellow_skin'], ['bulging']]) {
-    assert.equal(warn(ids), true);
+test('pre-upload warnings agree with the backend triage cases', () => {
+  for (const c of cases) {
+    const warned = matchRules(redRules, c.symptoms, c).length > 0;
+    // Never warn when the backend would not say red; without an image sign, agree exactly.
+    if (warned) assert.equal(c.level, 'red', c.id);
+    if (['Normal', 'Back Ground'].includes(c.image.label)) assert.equal(warned, c.level === 'red', c.id);
   }
+  assert.equal(matchRules(redRules, []).length, 0);
+  assert.equal(matchRules(redRules, ['contacts']).length, 0);
+  assert.deepEqual(matchRules(redRules, ['blurred']).map(r => r.id), ['blurred_new']);
+  assert.equal(matchRules(redRules, ['blurred'], { duration: '1_7d' }).length, 0);
+  assert.deepEqual(matchRules(redRules, ['itch'], { age_group: 'infant' }).map(r => r.id), ['infant_symptoms']);
+});
+test('rule reasons name the selected symptoms', () => {
+  const labels = { vision_loss: 'Vision loss', photophobia: 'Light pain', itch: 'Itch' };
+  const ids = ['itch', 'vision_loss', 'photophobia'];
+  const [rule] = matchRules(redRules, ids);
+  assert.equal(ruleReason(rule, ids, labels), 'Danger signs: Vision loss, Light pain');
 });
 test('API retains symptom-only 503 results and handles non-JSON failures', async () => {
   const original = globalThis.fetch;
   try {
-    globalThis.fetch = async () => new Response(JSON.stringify({ risk: { level: 'high' } }), {status: 503});
-    assert.equal((await requestJSON('/api/screen')).data.risk.level, 'high');
+    globalThis.fetch = async () => new Response(JSON.stringify({ risk: { level: 'red' } }), {status: 503});
+    assert.equal((await requestJSON('/api/screen')).data.risk.level, 'red');
     globalThis.fetch = async () => new Response('<html>Bad gateway</html>', {status: 502});
     await assert.rejects(requestJSON('/api/screen'), /Please try again/);
     setLang('vi');
@@ -141,11 +155,16 @@ test('API requests send the selected language', async () => {
   const original = globalThis.fetch;
   const urls = [];
   try {
-    globalThis.fetch = async url => { urls.push(url); return new Response('{"symptoms": []}'); };
+    const bodies = [];
+    globalThis.fetch = async (url, options) => { urls.push(url); bodies.push(options?.body); return new Response('{"symptoms": []}'); };
     await fetchSymptoms();
     setLang('vi');
     await fetchSymptoms();
-    await screenImage(new Blob(['x']), ['itch']);
+    await screenImage(new Blob(['x']), ['itch'], { age_group: 'adult', duration: '', confirmed: true });
     assert.deepEqual(urls, ['/api/symptoms?lang=en', '/api/symptoms?lang=vi', '/api/screen?lang=vi']);
+    const form = bodies[2];
+    assert.equal(form.get('age_group'), 'adult');
+    assert.equal(form.get('confirmed'), 'true');
+    assert.equal(form.has('duration'), false);
   } finally { globalThis.fetch = original; setLang('en'); }
 });

@@ -6,6 +6,8 @@ from PIL import Image
 from fastapi.testclient import TestClient
 import backend.app as api
 import backend.image_predictor as ip
+from pathlib import Path
+import backend.risk_engine as engine
 from backend.risk_engine import assess_risk
 
 
@@ -33,23 +35,117 @@ def client(monkeypatch):
         yield c
 
 
+CASES = json.loads(
+    (Path(__file__).parent / "triage_cases.json").read_text(encoding="utf-8")
+)["cases"]
+
+
+@pytest.mark.parametrize("case", CASES, ids=[c["id"] for c in CASES])
+def test_triage_cases(case):
+    options = {k: case[k] for k in ("age_group", "duration", "confirmed") if k in case}
+    risk = assess_risk(case["image"], case["symptoms"], **options)
+    assert (risk["level"], risk["destination"]) == (case["level"], case["destination"])
+    assert risk["urgent"] == (case["level"] == "red")
+
+
+MILD = [s["id"] for s in api.KB["symptoms"] if s.get("mild")]
+CONTEXT = [s["id"] for s in api.KB["symptoms"] if s.get("context")]
+
+
+@pytest.mark.parametrize("sid", [s["id"] for s in api.KB["symptoms"]])
+def test_every_symptom_alone(sid):
+    for age in ("child", "adult"):
+        for duration in (None, "lt_1d", "1_7d"):
+            risk = assess_risk(
+                prediction(), [sid], age_group=age, duration=duration, confirmed=True
+            )
+            # Mild symptoms and context alone are green; everything else needs a doctor.
+            expected = {"green"} if sid in MILD + CONTEXT else {"yellow", "red"}
+            assert risk["level"] in expected, (sid, age, duration)
+        risk = assess_risk(
+            prediction(), [sid], age_group=age, duration="gt_7d", confirmed=True
+        )
+        expected = {"green"} if sid in CONTEXT else {"yellow"} if sid in MILD else {
+            "yellow",
+            "red",
+        }
+        assert risk["level"] in expected, (sid, age, "gt_7d")
+    # Unknown age never gives green; babies are never sent to self-care.
+    unknown = assess_risk(prediction(), [sid], confirmed=True)
+    assert unknown["level"] != "green"
+    infant = assess_risk(prediction(), [sid], age_group="infant", confirmed=True)
+    assert infant["level"] == ("yellow" if sid in CONTEXT else "red")
+
+
+def test_green_needs_confirmation_and_normal_never_lowers():
+    risk = assess_risk(prediction(), ["itch"])
+    assert risk["level"] is None and risk["rules"] == ["needs_confirmation"]
+    assert "confirm" in risk["recommendation"]
+    assert assess_risk(prediction(), ["vision_loss"])["level"] == "red"
+    assert assess_risk(prediction(), ["pain"])["level"] == "yellow"
+
+
+def test_first_aid_and_steroid_warning():
+    chemical = assess_risk(prediction(), ["chemical", "contacts", "red_eye"])
+    assert [a.split()[0] for a in chemical["first_aid"]] == ["Rinse", "Take"]
+    assert chemical["rules"][:2] == ["chemical", "contacts_symptoms"]
+    assert chemical["destination_text"].startswith("Eye emergency")
+    assert "corticosteroids" in chemical["warnings"][0]
+    green = assess_risk(prediction(), [], age_group="adult", confirmed=True)
+    assert green["warnings"] and not green["first_aid"]
+    unknown = assess_risk(prediction("Back Ground", "invalid"), [], confirmed=True)
+    assert unknown["level"] is None and unknown["warnings"] == []
+
+
+def test_reasons_name_the_symptoms_and_signs():
+    risk = assess_risk(prediction(), ["photophobia", "vision_loss"])
+    assert risk["reasons"] == [
+        "Danger signs: Sudden reduced or lost vision, Pain when looking at light"
+    ]
+    risk = assess_risk(prediction("Redness"), ["contacts"], "vi")
+    assert risk["reasons"][0] == "Đang dùng kính áp tròng; ảnh gợi ý: Đỏ mắt"
+    mild = assess_risk(
+        prediction("Back Ground", "invalid"), ["itch"], age_group="adult", confirmed=True
+    )
+    assert mild["reasons"][0] == "Only mild symptoms: Itchy eyes"
+    assert "could not be used" in mild["reasons"][-1]
+
+
+def test_unknown_triage_values_are_rejected():
+    with pytest.raises(ValueError):
+        assess_risk(prediction(), [], age_group="teen")
+    with pytest.raises(ValueError):
+        assess_risk(prediction(), [], duration="forever")
+
+
 @pytest.mark.parametrize(
-    "label,status,symptoms,level",
+    "change",
     [
-        ("Normal", "valid", [], "low"),
-        ("Normal", "valid", ["itch"], "medium"),
-        ("Normal", "valid", ["vision_loss"], "high"),
-        ("Normal", "valid", ["contacts", "red_eye"], "high"),
-        ("Back Ground", "invalid", [], None),
-        ("Back Ground", "invalid", ["severe_pain"], "high"),
-        ("Redness", "uncertain", [], None),
-        ("Redness", "valid", [], "medium"),
-        ("Yellow Eye", "valid", [], "high"),
-        ("Normal", "valid", ["yellow_skin"], "high"),
+        {"all": ["chemicals"]},  # unknown symptom
+        {"image": ["Red"]},  # unknown image sign
+        {"level": "orange"},
+        {"destination": "pharmacy"},
+        {"duration": ["1d"]},
+        {"any": []},
+        {"imgae": ["Redness"]},  # unknown key
+        {"reason": {"en": "x", "vi": " "}},
+        {"reason": "x"},
+        {"reason": {"en": "{foo}", "vi": "x"}},  # unknown placeholder
+        {"all": []},
+        {"hint_ok": True},  # without an image condition
+        {"image": ["Redness"], "hint_ok": "yes"},
     ],
 )
-def test_risk(label, status, symptoms, level):
-    assert assess_risk(prediction(label, status), symptoms)["level"] == level
+def test_rule_typos_fail_at_startup(change):
+    rule = {**api.KB["triage_rules"][0], **change}
+    with pytest.raises(ValueError):
+        engine.check_rules([rule])
+
+
+def test_duplicate_rule_ids_fail_at_startup():
+    rule = api.KB["triage_rules"][0]
+    with pytest.raises(ValueError):
+        engine.check_rules([rule, rule])
 
 
 def scored_model(**probs):
@@ -83,44 +179,31 @@ def test_uncertain_hint(monkeypatch, probs, hint):
     assert (result["hint"] or {}).get("label") == hint
 
 
-def test_high_priority_hint_raises_level_without_urgency():
-    pred = prediction("Cornea Abnormal", "uncertain")
-    pred["hint"] = {"label": "Cornea Abnormal", "confidence": 0.45}
-    risk = assess_risk(pred, [])
-    assert risk["level"] == "medium" and not risk["urgent"]
-    assert risk["image_used"] is False and risk["candidates"] == []
-    sign = assess_risk(prediction("Cornea Abnormal", "valid"), [])["reasons"][0]
-    assert any(sign in r for r in risk["reasons"])
-
-
 def hinted(label):
     pred = prediction(label, "uncertain")
     pred["hint"] = {"label": label, "confidence": 0.45}
     return pred
 
 
-def test_hint_never_lowers_an_urgent_result():
-    risk = assess_risk(hinted("Cornea Abnormal"), ["vision_loss"])
-    assert risk["level"] == "high" and risk["urgent"]
-    assert assess_risk(hinted("Cornea Abnormal"), ["itch"])["level"] == "medium"
-
-
-def test_hint_that_completes_a_combination_raises_to_medium():
-    # Contact lenses + an uncertain lean towards Redness must not become "not assessed".
-    risk = assess_risk(hinted("Redness"), ["contacts"])
-    assert risk["level"] == "medium" and not risk["urgent"]
+def test_hint_counts_only_where_a_rule_allows_it():
+    risk = assess_risk(hinted("Cornea Abnormal"), [])
+    assert risk["level"] == "yellow" and not risk["urgent"]
+    assert risk["image_used"] is False and risk["candidates"] == []
+    assert "uncertain" in risk["reasons"][-1]
+    # A corneal hint with pain is not enough for red; a valid corneal sign is.
+    assert assess_risk(hinted("Cornea Abnormal"), ["pain"])["level"] == "yellow"
+    assert assess_risk(prediction("Cornea Abnormal"), ["pain"])["level"] == "red"
+    # Medium-priority hints alone are ignored.
+    assert assess_risk(hinted("Redness"), [], confirmed=True)["level"] is None
+    mild = assess_risk(hinted("Redness"), ["itch"], age_group="adult", confirmed=True)
+    assert mild["level"] == "green" and "could not be used" in mild["reasons"][-1]
+    assert assess_risk(hinted("Redness"), ["contacts"])["level"] == "red"
     assert assess_risk(prediction("Redness", "uncertain"), ["contacts"])["level"] is None
 
 
-def test_medium_priority_hint_is_ignored():
-    pred = prediction("Redness", "uncertain")
-    pred["hint"] = {"label": "Redness", "confidence": 0.45}
-    assert assess_risk(pred, [])["level"] is None
-
-
-def test_contact_lenses_alone_are_context_not_a_symptom():
-    assert assess_risk(prediction("Normal", "valid"), ["contacts"])["level"] == "low"
-    assert assess_risk(prediction("Redness", "valid"), ["contacts"])["level"] == "high"
+def test_hint_never_lowers_an_urgent_result():
+    risk = assess_risk(hinted("Cornea Abnormal"), ["vision_loss"])
+    assert risk["level"] == "red" and risk["urgent"]
 
 
 def test_file_sha256(tmp_path):
@@ -193,14 +276,57 @@ def test_predict_background(monkeypatch):
 
 def test_routes(client):
     assert client.get("/").status_code == 200
-    assert len(client.get("/api/symptoms").json()["symptoms"]) == 28
+    assert len(client.get("/api/symptoms").json()["symptoms"]) == 29
     assert client.get("/model/labels.txt").status_code == 404
     r = client.post(
         "/api/screen",
         files={"image": ("eye.png", photo(), "image/png")},
         data={"symptoms": '["vision_loss"]'},
     )
-    assert r.status_code == 200 and r.json()["risk"]["level"] == "high"
+    assert r.status_code == 200 and r.json()["risk"]["level"] == "red"
+
+
+def screen(client, **data):
+    return client.post(
+        "/api/screen", files={"image": ("eye.png", photo(), "image/png")}, data=data
+    )
+
+
+def test_screen_triage_fields(client):
+    assert screen(client, symptoms='["itch"]').json()["risk"]["level"] is None
+    risk = screen(client, symptoms='["itch"]', confirmed="true").json()["risk"]
+    assert risk["level"] is None  # age group missing
+    risk = screen(
+        client, symptoms='["itch"]', confirmed="true", age_group="adult"
+    ).json()["risk"]
+    assert risk["level"] == "green" and risk["destination"] == "self_care"
+    risk = screen(client, symptoms='["itch"]', age_group="infant").json()["risk"]
+    assert risk["level"] == "red" and risk["rules"][0] == "infant_symptoms"
+    risk = screen(client, symptoms='["blurred"]', duration="gt_7d").json()["risk"]
+    assert risk["level"] == "yellow"
+    # Empty values from an unselected <select> mean "not given".
+    risk = screen(client, symptoms='["blurred"]', duration="", age_group="").json()
+    assert risk["risk"]["level"] == "red"
+
+
+@pytest.mark.parametrize(
+    "data",
+    [{"age_group": "teen"}, {"duration": "2d"}, {"confirmed": "yes"}],
+)
+def test_screen_rejects_bad_triage_fields(client, data):
+    response = screen(client, **data)
+    assert response.status_code == 422
+    assert response.json()["detail"].startswith("Invalid age group")
+    assert not api.app.state.busy
+
+
+def test_screen_rejects_duplicate_triage_fields(client):
+    response = client.post("/api/screen", files=[
+        ("image", ("eye.png", photo(), "image/png")),
+        ("age_group", (None, "adult")),
+        ("age_group", (None, "infant")),
+    ])
+    assert response.status_code == 422
 
 
 @pytest.mark.parametrize("symptoms", ["not-json", "{}", '["fake"]', "[1]"])
@@ -225,7 +351,7 @@ def test_invalid_preserves_warning(client, monkeypatch):
         files={"image": ("e.png", b"bad")},
         data={"symptoms": '["vision_loss"]'},
     )
-    assert r.json()["risk"]["level"] == "high"
+    assert r.json()["risk"]["level"] == "red"
     assert r.json()["image"]["status"] == "invalid"
 
 
@@ -239,7 +365,7 @@ def test_missing_model_preserves_warning(client, monkeypatch):
         files={"image": ("e.png", photo())},
         data={"symptoms": '["vision_loss"]'},
     )
-    assert r.status_code == 503 and r.json()["risk"]["level"] == "high"
+    assert r.status_code == 503 and r.json()["risk"]["level"] == "red"
 
 
 def test_limits(client):
@@ -278,11 +404,14 @@ def test_frontend_assets_and_cache_policy(client):
         assert response.status_code == 200
         assert "must-revalidate" in response.headers["cache-control"]
     assert client.get("/api/symptoms").headers["cache-control"] == "no-store"
-    combinations = client.get("/api/symptoms").json()["urgent_combinations"]
-    assert [c["id"] for c in combinations] == [
-        c["id"] for c in api.KB["urgent_combinations"]
+    rules = client.get("/api/symptoms").json()["red_rules"]
+    assert [r["id"] for r in rules] == [
+        r["id"]
+        for r in api.KB["triage_rules"]
+        if r["level"] == "red" and "image" not in r
     ]
-    assert all(isinstance(c["reason"], str) for c in combinations)
+    assert "chemical" in [r["id"] for r in rules]
+    assert all(isinstance(r["reason"], str) for r in rules)
 
 
 def test_rejected_request_releases_inference_slot(client):
@@ -335,8 +464,8 @@ def test_knowledge_base_has_both_languages():
                 yield from texts(value)
 
     pairs = list(texts(api.KB))
-    # 28 symptoms + 11 image signs + 5 combinations + 9 patterns x 2 + 4 sources + 2
-    assert len(pairs) == 68
+    # 29 symptoms + 11 image signs + 29 rules + 9 patterns x 2 + 4 sources + 2
+    assert len(pairs) == 93
     assert all(p["en"].strip() and p["vi"].strip() for p in pairs)
 
 
@@ -344,10 +473,10 @@ def test_risk_language_defaults_to_english():
     pred = prediction("Yellow Eye")
     en = assess_risk(pred, ["vision_loss"])
     vi = assess_risk(pred, ["vision_loss"], "vi")
-    assert en["level"] == vi["level"] == "high"
-    assert en["label"] == "High" and vi["label"] == "Cao"
-    assert "Sudden reduced or lost vision" in en["reasons"]
-    assert "Giảm / mất thị lực đột ngột" in vi["reasons"]
+    assert en["level"] == vi["level"] == "red"
+    assert en["label"] == "Red · go now" and vi["label"] == "Đỏ · đi khám ngay"
+    assert "Danger signs: Sudden reduced or lost vision" in en["reasons"]
+    assert "Dấu hiệu nguy hiểm: Giảm / mất thị lực đột ngột" in vi["reasons"]
     assert en["candidates"][0]["name"] == "Yellow eyes needing a general check-up"
     assert vi["candidates"][0]["name"] == "Vàng mắt cần kiểm tra toàn thân"
     assert assess_risk(prediction("Back Ground", "invalid"), [])["label"] == "Not assessed"
@@ -358,8 +487,8 @@ def test_symptoms_endpoint_language(client):
     vi = client.get("/api/symptoms?lang=vi").json()
     fallback = client.get("/api/symptoms?lang=fr").json()
     assert en["lang"] == fallback["lang"] == "en" and vi["lang"] == "vi"
-    assert en["symptoms"][1] == {"id": "itch", "label": "Itchy eyes"}
-    assert vi["symptoms"][1] == {"id": "itch", "label": "Ngứa mắt"}
+    assert en["symptoms"][1] == {"id": "itch", "label": "Itchy eyes", "mild": True}
+    assert vi["symptoms"][1] == {"id": "itch", "label": "Ngứa mắt", "mild": True}
     assert fallback["symptoms"] == en["symptoms"]
     assert en["disclaimer"].startswith("Experimental")
 
