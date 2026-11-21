@@ -43,6 +43,14 @@ VALID_MIN = 0.60
 HINT_MIN = 0.30
 HINT_MIN_MARGIN = 0.10
 HINT_MAX_BACKGROUND = 0.10
+# Uncalibrated photo-quality checks on the centre crop the model sees, at twice its
+# resolution. They only suggest a retake; they never change the result or the triage.
+QUALITY_SIZE = 448
+BLUR_MIN = 60.0  # variance of the Laplacian of the grey image
+DARK_MAX = 50.0  # mean grey level, 0-255
+BRIGHT_MIN = 215.0
+GLARE_MAX = 0.03  # share of near-white pixels (every channel at 250 or more)
+QUALITY_FLAGS = ("blurry", "dark", "bright", "glare")
 _lock = RLock()
 _model = None
 _labels = None
@@ -109,7 +117,8 @@ def load_artifacts():
             ) from exc
 
 
-def preprocess(image_bytes):
+def decode(image_bytes):
+    """Validate untrusted bytes and return an upright RGB image."""
     if not image_bytes or len(image_bytes) > MAX_BYTES:
         raise InvalidImage("image_size")
     try:
@@ -129,9 +138,7 @@ def preprocess(image_bytes):
                     or original.width * original.height > MAX_PIXELS
                 ):
                     raise InvalidImage("image_dimensions")
-                image = ImageOps.exif_transpose(original).convert("RGB")
-                image = ImageOps.fit(image, (224, 224), Image.Resampling.LANCZOS)
-                return ((np.asarray(image, dtype=np.float32) / 127.5) - 1.0)[None, ...]
+                return ImageOps.exif_transpose(original).convert("RGB")
     except InvalidImage:
         raise
     except (Image.DecompressionBombError, Image.DecompressionBombWarning) as exc:
@@ -145,8 +152,45 @@ def preprocess(image_bytes):
         raise InvalidImage("image_unreadable") from exc
 
 
+def to_batch(image):
+    image = ImageOps.fit(image, (224, 224), Image.Resampling.LANCZOS)
+    return ((np.asarray(image, dtype=np.float32) / 127.5) - 1.0)[None, ...]
+
+
+def preprocess(image_bytes):
+    return to_batch(decode(image_bytes))
+
+
+def measure_quality(image):
+    """Sharpness, brightness and glare of the centre crop, plus the flags they raise."""
+    crop = ImageOps.fit(image, (QUALITY_SIZE,) * 2, Image.Resampling.LANCZOS)
+    grey = np.asarray(crop.convert("L"), dtype=np.float32)
+    laplacian = (
+        grey[:-2, 1:-1] + grey[2:, 1:-1] + grey[1:-1, :-2] + grey[1:-1, 2:]
+        - 4 * grey[1:-1, 1:-1]
+    )
+    sharpness = float(laplacian.var())
+    brightness = float(grey.mean())
+    glare = float((np.asarray(crop).min(axis=2) >= 250).mean())
+    raised = {
+        "blurry": sharpness < BLUR_MIN,
+        "dark": brightness < DARK_MAX,
+        "bright": brightness > BRIGHT_MIN,
+        "glare": glare > GLARE_MAX,
+    }
+    return {
+        "sharpness": round(sharpness, 1),
+        "brightness": round(brightness, 1),
+        "glare": round(glare, 4),
+        "flags": [flag for flag in QUALITY_FLAGS if raised[flag]],
+    }
+
+
 def predict_image(image_bytes, lang=DEFAULT):
-    batch = preprocess(image_bytes)
+    image = decode(image_bytes)
+    batch = to_batch(image)
+    quality = measure_quality(image)
+    quality["advice"] = [t(f"quality_{flag}", lang) for flag in quality["flags"]]
     with _lock:
         model, labels = load_artifacts()
         try:
@@ -178,6 +222,7 @@ def predict_image(image_bytes, lang=DEFAULT):
         "message": t(f"image_{status}", lang),
         "hint": uncertain_hint(scores[0], labels) if status == "uncertain" else None,
         "model_version": model_version,
+        "quality": quality,
     }
 
 

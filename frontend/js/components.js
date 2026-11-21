@@ -32,6 +32,10 @@ export function renderResult({ image, risk }) {
     ? t('imageLabel', { label: image.label, score: (image.confidence * 100).toFixed(1) })
     : t('noImageLabel');
   byId('imageMessage').textContent = image.message;
+  const advice = image.quality?.advice || [];
+  byId('qualityAdvice').replaceChildren();
+  advice.forEach(tip => textNode('li', tip, byId('qualityAdvice')));
+  byId('quality').hidden = !advice.length;
   byId('advice').textContent = risk.recommendation;
   byId('destination').hidden = !risk.destination_text;
   byId('destination').textContent = risk.destination_text ? t('goTo', { place: risk.destination_text }) : '';
