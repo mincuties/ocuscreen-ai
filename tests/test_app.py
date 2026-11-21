@@ -306,6 +306,17 @@ def test_quality_flags_never_change_the_result(monkeypatch):
     assert result["quality"]["advice"][1].startswith("Ảnh có vẻ quá tối")
 
 
+def test_top3_is_ordered_and_does_not_affect_triage(monkeypatch):
+    model = scored_model(Redness=0.62, Discharge=0.2, Watery=0.1)
+    monkeypatch.setattr(ip, "load_artifacts", lambda: (model, ip.read_labels()))
+    result = ip.predict_image(photo())
+    assert [t["label"] for t in result["top3"]] == ["Redness", "Discharge", "Watery"]
+    assert result["top3"][1]["confidence"] == pytest.approx(0.2)
+    with_top3 = assess_risk(result, [], age_group="adult")
+    without = assess_risk({**result, "top3": None}, [], age_group="adult")
+    assert with_top3 == without
+
+
 def test_predict_background(monkeypatch):
     class Model:
         def __call__(self, batch, training=False):
@@ -397,6 +408,7 @@ def test_invalid_preserves_warning(client, monkeypatch):
     assert r.json()["risk"]["level"] == "red"
     assert r.json()["image"]["status"] == "invalid"
     assert r.json()["image"]["quality"] is None
+    assert r.json()["image"]["top3"] is None
 
 
 def test_missing_model_preserves_warning(client, monkeypatch):

@@ -221,9 +221,18 @@ def predict_image(image_bytes, lang=DEFAULT):
         "status": status,
         "message": t(f"image_{status}", lang),
         "hint": uncertain_hint(scores[0], labels) if status == "uncertain" else None,
+        "top3": top_scores(scores[0], labels),
         "model_version": model_version,
         "quality": quality,
     }
+
+
+def top_scores(scores, labels, k=3):
+    """The k highest model scores, for transparency only; triage never reads them."""
+    return [
+        {"label": labels[i][1], "confidence": float(scores[i])}
+        for i in np.argsort(scores)[::-1][:k]
+    ]
 
 
 def uncertain_hint(scores, labels):

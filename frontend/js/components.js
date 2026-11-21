@@ -25,12 +25,27 @@ export function renderSymptoms(symptoms, container) {
   container.replaceChildren(fragment);
 }
 
+/** Model scores below this are close to the 12-class junk baseline; not worth showing. */
+export const OTHER_MIN = 0.15;
+/** Runner-up labels of a valid image, shown for transparency only. */
+export function otherPossibilities(image) {
+  if (image?.status !== 'valid' || !Array.isArray(image.top3)) return [];
+  return image.top3.slice(1).filter(item => item.label !== 'Back Ground' && item.confidence >= OTHER_MIN);
+}
+const percent = score => (score * 100).toFixed(1);
+
 export function renderResult({ image, risk }) {
   byId('level').textContent = t('priority', { label: risk.label });
   byId('level').className = 'badge ' + (['red', 'yellow', 'green'].includes(risk.level) ? risk.level : '');
-  byId('imageResult').textContent = image.label && Number.isFinite(image.confidence)
-    ? t('imageLabel', { label: image.label, score: (image.confidence * 100).toFixed(1) })
+  // An uncertain image has no label worth showing; its message asks for a retake.
+  byId('imageResult').textContent = image.status === 'valid' && Number.isFinite(image.confidence)
+    ? t('imageLabel', { label: image.label, score: percent(image.confidence) })
     : t('noImageLabel');
+  const others = otherPossibilities(image);
+  byId('otherLabels').hidden = !others.length;
+  byId('otherLabels').textContent = others.length ? t('otherLabels', {
+    items: others.map(item => `${item.label} ${percent(item.confidence)}%`).join(', '),
+  }) : '';
   byId('imageMessage').textContent = image.message;
   const advice = image.quality?.advice || [];
   byId('qualityAdvice').replaceChildren();
@@ -61,6 +76,11 @@ export function renderResult({ image, risk }) {
     }
   }
   byId('disclaimer').textContent = risk.disclaimer;
+  byId('printMeta').textContent = t('versions', {
+    model: image.model_version ? image.model_version.slice(0, 12) : t('noModel'),
+    rules: risk.knowledge_version,
+    time: new Date().toLocaleString(document.documentElement.lang || undefined),
+  });
   byId('result').hidden = false;
   byId('result').focus({ preventScroll: true });
   byId('result').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'start' });

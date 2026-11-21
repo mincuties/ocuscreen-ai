@@ -108,6 +108,7 @@ async function changeLanguage(lang) {
 }
 for (const button of langButtons()) button.addEventListener('click', () => changeLanguage(button.dataset.lang));
 $('retry').addEventListener('click', init);
+$('printResult').addEventListener('click', () => window.print());
 for (const id of ['checks', 'ageGroup', 'duration', 'confirmed']) {
   $(id).addEventListener('change', () => {
     // A confirmation given before the checklist changed no longer covers it.
