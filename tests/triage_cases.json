@@ -1,0 +1,593 @@
+{
+  "about": "Example cases for the triage rules. Expected levels follow the rule notes in data/disease_knowledge.json and still need review by an eye specialist.",
+  "reviewed_by_specialist": false,
+  "cases": [
+    {
+      "id": "chemical_splash",
+      "note": "Chemical injury: rinse first, then emergency care.",
+      "symptoms": [
+        "chemical"
+      ],
+      "image": {
+        "label": "Normal",
+        "status": "valid"
+      },
+      "level": "red",
+      "destination": "eye_emergency"
+    },
+    {
+      "id": "injury",
+      "note": "Penetrating injury or foreign body: do not rub or remove.",
+      "symptoms": [
+        "injury"
+      ],
+      "image": {
+        "label": "Back Ground",
+        "status": "invalid"
+      },
+      "level": "red",
+      "destination": "eye_emergency"
+    },
+    {
+      "id": "sudden_vision_loss",
+      "note": "Sudden loss of vision is an emergency even with a normal-looking photo.",
+      "symptoms": [
+        "vision_loss"
+      ],
+      "image": {
+        "label": "Normal",
+        "status": "valid"
+      },
+      "level": "red",
+      "destination": "eye_emergency"
+    },
+    {
+      "id": "curtain_flashes",
+      "note": "Flashes, floaters or a curtain suggest retinal detachment.",
+      "symptoms": [
+        "flashes_floaters",
+        "visual_curtain"
+      ],
+      "image": {
+        "label": "Normal",
+        "status": "valid"
+      },
+      "level": "red",
+      "destination": "eye_emergency"
+    },
+    {
+      "id": "angle_closure",
+      "note": "Severe eye pain with headache and nausea suggests acute angle closure.",
+      "symptoms": [
+        "severe_pain",
+        "headache_nausea"
+      ],
+      "image": {
+        "label": "Normal",
+        "status": "valid"
+      },
+      "level": "red",
+      "destination": "eye_emergency"
+    },
+    {
+      "id": "blurred_today",
+      "note": "New blurred vision within a day.",
+      "symptoms": [
+        "blurred"
+      ],
+      "image": {
+        "label": "Normal",
+        "status": "valid"
+      },
+      "duration": "lt_1d",
+      "level": "red",
+      "destination": "eye_emergency"
+    },
+    {
+      "id": "blurred_onset_unknown",
+      "note": "Blurred vision with no onset given stays urgent.",
+      "symptoms": [
+        "blurred"
+      ],
+      "image": {
+        "label": "Normal",
+        "status": "valid"
+      },
+      "level": "red",
+      "destination": "eye_emergency"
+    },
+    {
+      "id": "blurred_week_alone",
+      "note": "Gradual blurred vision for days, no pain or redness: eye exam, not emergency.",
+      "symptoms": [
+        "blurred"
+      ],
+      "image": {
+        "label": "Normal",
+        "status": "valid"
+      },
+      "duration": "1_7d",
+      "confirmed": true,
+      "age_group": "adult",
+      "level": "yellow",
+      "destination": "eye_doctor"
+    },
+    {
+      "id": "optic_neuritis",
+      "note": "Blurred vision with pain on eye movement.",
+      "symptoms": [
+        "blurred",
+        "pain_movement"
+      ],
+      "image": {
+        "label": "Normal",
+        "status": "valid"
+      },
+      "duration": "1_7d",
+      "level": "red",
+      "destination": "eye_emergency"
+    },
+    {
+      "id": "contacts_red_eye",
+      "note": "Red eye in a contact lens wearer may be microbial keratitis.",
+      "symptoms": [
+        "contacts",
+        "red_eye"
+      ],
+      "image": {
+        "label": "Normal",
+        "status": "valid"
+      },
+      "level": "red",
+      "destination": "eye_emergency"
+    },
+    {
+      "id": "contacts_uncertain_redness",
+      "note": "Uncertain photo leaning to redness in a lens wearer is not dropped.",
+      "symptoms": [
+        "contacts"
+      ],
+      "image": {
+        "label": "Redness",
+        "status": "uncertain",
+        "hint": {
+          "label": "Redness",
+          "confidence": 0.45
+        }
+      },
+      "level": "red",
+      "destination": "eye_emergency"
+    },
+    {
+      "id": "contacts_itch",
+      "note": "Mild symptoms in a lens wearer: remove lenses, eye exam.",
+      "symptoms": [
+        "contacts",
+        "itch"
+      ],
+      "image": {
+        "label": "Normal",
+        "status": "valid"
+      },
+      "confirmed": true,
+      "age_group": "adult",
+      "level": "yellow",
+      "destination": "eye_doctor"
+    },
+    {
+      "id": "orbital_cellulitis",
+      "note": "Fever with pain on eye movement.",
+      "symptoms": [
+        "fever",
+        "pain_movement"
+      ],
+      "image": {
+        "label": "Normal",
+        "status": "valid"
+      },
+      "level": "red",
+      "destination": "emergency"
+    },
+    {
+      "id": "fever_swelling_photo",
+      "note": "Fever with eyelid swelling in the photo.",
+      "symptoms": [
+        "fever"
+      ],
+      "image": {
+        "label": "Swelling",
+        "status": "valid"
+      },
+      "level": "red",
+      "destination": "emergency"
+    },
+    {
+      "id": "infant_discharge",
+      "note": "Any eye symptom in a baby under 3 months needs same-day emergency care.",
+      "symptoms": [
+        "discharge"
+      ],
+      "image": {
+        "label": "Normal",
+        "status": "valid"
+      },
+      "age_group": "infant",
+      "level": "red",
+      "destination": "emergency"
+    },
+    {
+      "id": "infant_fever",
+      "note": "Fever in a baby under 3 months.",
+      "symptoms": [
+        "fever"
+      ],
+      "image": {
+        "label": "Back Ground",
+        "status": "invalid"
+      },
+      "age_group": "infant",
+      "level": "red",
+      "destination": "emergency"
+    },
+    {
+      "id": "child_discharge",
+      "note": "Same symptom in an older child: eye exam.",
+      "symptoms": [
+        "discharge"
+      ],
+      "image": {
+        "label": "Normal",
+        "status": "valid"
+      },
+      "age_group": "child",
+      "level": "yellow",
+      "destination": "eye_doctor"
+    },
+    {
+      "id": "cornea_with_pain",
+      "note": "Corneal-area sign in the photo with pain.",
+      "symptoms": [
+        "pain"
+      ],
+      "image": {
+        "label": "Cornea Abnormal",
+        "status": "valid"
+      },
+      "level": "red",
+      "destination": "eye_emergency"
+    },
+    {
+      "id": "cornea_alone",
+      "note": "Corneal-area sign in the photo, no symptoms: eye exam today.",
+      "symptoms": [],
+      "image": {
+        "label": "Cornea Abnormal",
+        "status": "valid"
+      },
+      "level": "yellow",
+      "destination": "eye_today"
+    },
+    {
+      "id": "cornea_uncertain",
+      "note": "Uncertain photo leaning to a corneal sign is not dropped.",
+      "symptoms": [],
+      "image": {
+        "label": "Cornea Abnormal",
+        "status": "uncertain",
+        "hint": {
+          "label": "Cornea Abnormal",
+          "confidence": 0.45
+        }
+      },
+      "level": "yellow",
+      "destination": "eye_today"
+    },
+    {
+      "id": "jaundice_fever",
+      "note": "Yellow skin with fever.",
+      "symptoms": [
+        "yellow_skin",
+        "fever"
+      ],
+      "image": {
+        "label": "Normal",
+        "status": "valid"
+      },
+      "level": "red",
+      "destination": "emergency"
+    },
+    {
+      "id": "jaundice_alone",
+      "note": "Yellow skin or eyes: urgent GP appointment.",
+      "symptoms": [
+        "yellow_skin"
+      ],
+      "image": {
+        "label": "Normal",
+        "status": "valid"
+      },
+      "level": "yellow",
+      "destination": "doctor_today"
+    },
+    {
+      "id": "yellow_eye_photo",
+      "note": "Yellow whites of the eyes in the photo.",
+      "symptoms": [],
+      "image": {
+        "label": "Yellow Eye",
+        "status": "valid"
+      },
+      "level": "yellow",
+      "destination": "doctor_today"
+    },
+    {
+      "id": "bulging_alone",
+      "note": "Newly bulging eye without pain or fever: GP for orbit / thyroid check.",
+      "symptoms": [
+        "bulging"
+      ],
+      "image": {
+        "label": "Normal",
+        "status": "valid"
+      },
+      "level": "yellow",
+      "destination": "doctor"
+    },
+    {
+      "id": "bulging_red_painful",
+      "note": "Bulging eye with pain.",
+      "symptoms": [
+        "bulging",
+        "pain"
+      ],
+      "image": {
+        "label": "Normal",
+        "status": "valid"
+      },
+      "level": "red",
+      "destination": "eye_emergency"
+    },
+    {
+      "id": "pale_eyelid",
+      "note": "Pale inner eyelid with tiredness: GP for an anaemia check.",
+      "symptoms": [
+        "fatigue"
+      ],
+      "image": {
+        "label": "Pale Inner Eyelid",
+        "status": "valid"
+      },
+      "level": "yellow",
+      "destination": "doctor"
+    },
+    {
+      "id": "red_eye_photo",
+      "note": "Redness in the photo without symptoms.",
+      "symptoms": [],
+      "image": {
+        "label": "Redness",
+        "status": "valid"
+      },
+      "level": "yellow",
+      "destination": "eye_doctor"
+    },
+    {
+      "id": "itchy_week",
+      "note": "Itchy watery eyes for a few days, normal photo.",
+      "symptoms": [
+        "itch",
+        "tearing"
+      ],
+      "image": {
+        "label": "Normal",
+        "status": "valid"
+      },
+      "duration": "1_7d",
+      "confirmed": true,
+      "age_group": "adult",
+      "level": "green",
+      "destination": "self_care"
+    },
+    {
+      "id": "itchy_unconfirmed",
+      "note": "Same, without confirming the checklist: no green.",
+      "symptoms": [
+        "itch",
+        "tearing"
+      ],
+      "image": {
+        "label": "Normal",
+        "status": "valid"
+      },
+      "duration": "1_7d",
+      "age_group": "adult",
+      "level": null,
+      "destination": null
+    },
+    {
+      "id": "itchy_month",
+      "note": "Mild symptoms for more than a week.",
+      "symptoms": [
+        "itch"
+      ],
+      "image": {
+        "label": "Normal",
+        "status": "valid"
+      },
+      "duration": "gt_7d",
+      "confirmed": true,
+      "age_group": "adult",
+      "level": "yellow",
+      "destination": "eye_doctor"
+    },
+    {
+      "id": "dry_uncertain_photo",
+      "note": "Mild symptoms with an unusable photo can still be green.",
+      "symptoms": [
+        "dry"
+      ],
+      "image": {
+        "label": "Redness",
+        "status": "uncertain",
+        "hint": {
+          "label": "Redness",
+          "confidence": 0.45
+        }
+      },
+      "confirmed": true,
+      "age_group": "adult",
+      "level": "green",
+      "destination": "self_care"
+    },
+    {
+      "id": "nothing_bad_photo",
+      "note": "No symptoms and no usable photo.",
+      "symptoms": [],
+      "image": {
+        "label": "Back Ground",
+        "status": "invalid"
+      },
+      "confirmed": true,
+      "age_group": "adult",
+      "level": null,
+      "destination": null
+    },
+    {
+      "id": "nothing_normal_photo",
+      "note": "No symptoms and a normal photo.",
+      "symptoms": [],
+      "image": {
+        "label": "Normal",
+        "status": "valid"
+      },
+      "confirmed": true,
+      "age_group": "adult",
+      "level": "green",
+      "destination": "self_care"
+    },
+    {
+      "id": "bulging_photo_painful",
+      "note": "Bulging eye in the photo with pain.",
+      "symptoms": [
+        "pain"
+      ],
+      "image": {
+        "label": "Bulging Eye",
+        "status": "valid"
+      },
+      "level": "red",
+      "destination": "eye_emergency"
+    },
+    {
+      "id": "periorbital_cellulitis",
+      "note": "Fever with a swollen eyelid, no usable photo.",
+      "symptoms": [
+        "fever",
+        "lid_swelling"
+      ],
+      "image": {
+        "label": "Back Ground",
+        "status": "invalid"
+      },
+      "age_group": "child",
+      "level": "red",
+      "destination": "emergency"
+    },
+    {
+      "id": "fever_alone",
+      "note": "Fever without eye symptoms: general doctor.",
+      "symptoms": [
+        "fever"
+      ],
+      "image": {
+        "label": "Normal",
+        "status": "valid"
+      },
+      "age_group": "adult",
+      "level": "yellow",
+      "destination": "doctor"
+    },
+    {
+      "id": "yellow_eye_photo_fever",
+      "note": "Fever with yellow whites of the eyes in the photo.",
+      "symptoms": [
+        "fever"
+      ],
+      "image": {
+        "label": "Yellow Eye",
+        "status": "valid"
+      },
+      "level": "red",
+      "destination": "emergency"
+    },
+    {
+      "id": "painful_red_eye",
+      "note": "Painful red eye: eye exam today.",
+      "symptoms": [
+        "pain",
+        "red_eye"
+      ],
+      "image": {
+        "label": "Normal",
+        "status": "valid"
+      },
+      "age_group": "adult",
+      "duration": "lt_1d",
+      "level": "yellow",
+      "destination": "eye_today"
+    },
+    {
+      "id": "redness_photo_jaundice",
+      "note": "Several yellow rules: the most urgent destination wins.",
+      "symptoms": [
+        "yellow_skin"
+      ],
+      "image": {
+        "label": "Redness",
+        "status": "valid"
+      },
+      "level": "yellow",
+      "destination": "doctor_today"
+    },
+    {
+      "id": "infant_no_symptoms",
+      "note": "A baby under 3 months is never sent to self-care.",
+      "symptoms": [],
+      "image": {
+        "label": "Normal",
+        "status": "valid"
+      },
+      "age_group": "infant",
+      "confirmed": true,
+      "level": "yellow",
+      "destination": "doctor"
+    },
+    {
+      "id": "mild_age_unknown",
+      "note": "Without an age group a green result is withheld.",
+      "symptoms": [
+        "itch"
+      ],
+      "image": {
+        "label": "Normal",
+        "status": "valid"
+      },
+      "confirmed": true,
+      "level": null,
+      "destination": null
+    },
+    {
+      "id": "fake_background_valid",
+      "note": "An unknown label marked valid is treated as no image.",
+      "symptoms": [],
+      "image": {
+        "label": "Back Ground",
+        "status": "valid"
+      },
+      "age_group": "adult",
+      "confirmed": true,
+      "level": null,
+      "destination": null
+    }
+  ]
+}

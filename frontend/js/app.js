@@ -1,15 +1,23 @@
 import { fetchSymptoms, screenImage } from './api.js';
 import { byId as $, renderSymptoms, renderResult, filterSymptoms } from './components.js';
 import { applyTranslations, getLang, setLang, t } from './i18n.js';
-import { hasUrgentSymptoms } from './validation.js';
+import { matchRules, ruleReason } from './validation.js';
 import { prepareUpload } from './resize.js';
 
 import { createUpload } from './upload.js';
 
-const state = { file: null, loaded: false, busy: false, urgent: [], combinations: [], loadToken: 0 };
+const state = { file: null, loaded: false, busy: false, rules: [], labels: {}, loadToken: 0 };
 // Remember the last status so a language switch can translate it; server errors stay as sent.
 let lastStatus = { key: 'loadingSymptoms', text: null, error: false };
 const selected = () => [...$('checks').querySelectorAll('input:checked')].map(input => input.value);
+const triage = () => ({ age_group: $('ageGroup').value, duration: $('duration').value });
+/** Warn before the upload when a red rule already matches the answers. */
+function updateUrgentHint() {
+  const ids = selected();
+  const matched = matchRules(state.rules, ids, triage());
+  $('urgentReasons').textContent = matched.map(rule => ruleReason(rule, ids, state.labels)).join('. ');
+  $('urgentHint').hidden = !matched.length;
+}
 const langButtons = () => [...document.querySelectorAll('.lang-switch [data-lang]')];
 function renderStatus() {
   $('status').textContent = lastStatus.text ?? t(lastStatus.key);
@@ -30,6 +38,7 @@ function updateControls() {
   $('dropzone').classList.toggle('disabled', state.busy);
   $('symptomSearch').disabled = state.busy || !state.loaded;
   $('symptomField').disabled = state.busy || !state.loaded;
+  for (const id of ['ageGroup', 'duration', 'confirmed']) $(id).disabled = state.busy || !state.loaded;
   $('screenForm').querySelector('[type=reset]').disabled = state.busy;
   $('screenForm').setAttribute('aria-busy', String(state.busy));
   $('selectedCount').textContent = t('selectedCount', { count: selected().length });
@@ -72,10 +81,11 @@ async function init() {
     const { data } = await fetchSymptoms();
     if (token !== state.loadToken) return; // A newer load (e.g. another language) won.
     const keep = new Set(selected());
-    state.urgent = data.urgent_symptoms;
-    state.combinations = data.urgent_combinations || [];
+    state.rules = data.red_rules || [];
+    state.labels = Object.fromEntries(data.symptoms.map(s => [s.id, s.label]));
     renderSymptoms(data.symptoms, $('checks'));
     for (const input of $('checks').querySelectorAll('input')) input.checked = keep.has(input.value);
+    updateUrgentHint();
     updateSearch();
     state.loaded = true;
     status(state.file ? 'readyToAnalyze' : 'chooseImage');
@@ -98,11 +108,15 @@ async function changeLanguage(lang) {
 }
 for (const button of langButtons()) button.addEventListener('click', () => changeLanguage(button.dataset.lang));
 $('retry').addEventListener('click', init);
-$('checks').addEventListener('change', () => {
-  clearResult();
-  $('urgentHint').hidden = !hasUrgentSymptoms(selected(), state.urgent, state.combinations);
-  updateControls();
-});
+for (const id of ['checks', 'ageGroup', 'duration', 'confirmed']) {
+  $(id).addEventListener('change', () => {
+    // A confirmation given before the checklist changed no longer covers it.
+    if (id === 'checks') $('confirmed').checked = false;
+    clearResult();
+    updateUrgentHint();
+    updateControls();
+  });
+}
 $('screenForm').addEventListener('reset', () => {
   clearResult();
   upload.clear();
@@ -127,7 +141,7 @@ $('screenForm').addEventListener('submit', async event => {
     } catch {
       throw new Error(t('fileUnreadable'));
     }
-    const { data, ok } = await screenImage(photo, ids);
+    const { data, ok } = await screenImage(photo, ids, { ...triage(), confirmed: $('confirmed').checked });
     renderResult(data);
     status(ok ? 'analyzed' : 'symptomsOnly');
   } catch (error) {

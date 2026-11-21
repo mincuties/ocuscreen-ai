@@ -40,6 +40,7 @@ The backend, API messages and documentation are in English. The web interface is
 | `Dockerfile` | Python 3.11, CPU, UID 1000, port 7860 |
 | `main.py` | Optional CLI, no `input()` |
 | `tests/test_app.py` | Tests for rules, images and the API |
+| `tests/triage_cases.json` | Example triage cases, run as tests; to review with an eye specialist |
 
 Do not commit `.venv311`, user photos, datasets or secrets. The H5 file is about 198 MB, above GitHub's file size limit, so it is not in the repo. Download it from Drive: https://drive.google.com/file/d/10mt0wgyArY4zrOc53fuQjLfW3ykJNFyI/view . Download it in a browser, keep the name `keras_model.h5` and put it in `model/`. The model loads with TensorFlow 2.15.1 (input `(None,224,224,3)`, softmax output `(None,12)`); prediction quality still needs to be evaluated on real labeled eye photos.
 
@@ -49,8 +50,9 @@ Do not commit `.venv311`, user photos, datasets or secrets. The H5 file is about
 - Preprocessing matches the original main.py: EXIF orientation → RGB → center resize/crop with `ImageOps.fit(..., (224,224), LANCZOS)` → float32 → `(img / 127.5) - 1.0`.
 - The current contract is multiclass softmax `(None,12)` with argmax. Having 12 classes does not mean multi-label. If the actual model uses sigmoid or logits, the API reports a contract error; confirm the output before changing the algorithm.
 - Class 11 always asks for a retake and is never used to infer disease. A model score below 0.60 is treated as uncertain. This threshold is a prototype assumption that needs calibration.
-- `Normal` does not cancel symptoms. An invalid image with no symptoms returns `Not assessed`, not Low. Symptom warnings still appear when the model cannot load.
-- Stage 2 is not trained from the JSON. It reads the rules and ranks symptom patterns with 2 points for a matching image sign + 1 point per symptom; points are never turned into a disease percentage. The High/Medium/Low level is a rule-based examination priority, independent of the pattern ranking.
+- `Normal` does not cancel symptoms. An invalid image with no symptoms returns `Not assessed`, not Green. Symptom warnings still appear when the model cannot load.
+- Stage 2 is not trained from the JSON. It reads the rules and ranks symptom patterns with 2 points for a matching image sign + 1 point per symptom; points are never turned into a disease percentage.
+- Triage is a separate step driven by `triage_rules` in the JSON. Each rule has a level (`red` or `yellow`), a destination, and conditions: `all` / `any` symptom IDs, `image` signs (an uncertain image counts only when `hint_ok` is set), `age` and `duration`. The highest matching level wins, and the most urgent destination among the rules at that level is used. With no matching rule the result is `green` (self-care) only if the age group is known and the user confirms they reviewed the whole checklist, because an unchecked box is not evidence that a symptom is absent; otherwise it stays `null`. Rules are checked for typos at startup. They have not been reviewed by an eye specialist yet; `tests/triage_cases.json` lists example cases to review with one.
 - One worker, one model, one upload/inference at a time; other requests get 429. This is a resource limit for a small demo, not a complete DDoS defense.
 - Limits: 5 MB and 25 megapixels per uploaded image (the page downscales larger photos first), JPEG/PNG/WebP only, no animated images. Paths are based on module location, not the working directory.
 - `tensorflow-cpu` avoids CUDA dependencies; the process can still run out of memory on a very small host. Docker uses TF 2.15.1 / Keras 2.15.0, the Keras version the H5 file was saved with.
@@ -120,16 +122,16 @@ Docker Spaces require the app to listen on `0.0.0.0` and the port declared in th
 
 `/api/symptoms` and `/api/screen` accept an optional `lang` query parameter, `en` (default) or `vi`. Unsupported values fall back to English. It selects the language of symptom labels, reasons, recommendations, pattern names and error messages; IDs and model class names stay the same in both languages.
 
-- `GET /api/symptoms?lang=en`: symptom IDs and labels, urgent symptoms and combinations, disclaimer.
-- `POST /api/screen?lang=en`: multipart with `image` (file) and `symptoms` (JSON string list of IDs).
+- `GET /api/symptoms?lang=en`: symptom IDs and labels, the red rules that need no image (`red_rules`, so the page can warn before upload), disclaimer.
+- `POST /api/screen?lang=en`: multipart with `image` (file), `symptoms` (JSON string list of IDs) and optional `age_group` (`infant` under 3 months, `child`, `adult`), `duration` (`lt_1d`, `1_7d`, `gt_7d`) and `confirmed` (`true` or `false`, default `false`). Empty or missing values mean unknown.
 - `GET /api/health`: 200 if the model is ready, 503 if it could not load.
 - `/`: frontend; `/docs`: OpenAPI.
 
 ```bash
-curl -X POST 'http://localhost:7860/api/screen?lang=vi' -F 'image=@eye.jpg' -F 'symptoms=["itch","gritty"]'
+curl -X POST 'http://localhost:7860/api/screen?lang=vi' -F 'image=@eye.jpg' -F 'symptoms=["itch","gritty"]' -F age_group=adult -F duration=1_7d -F confirmed=true
 ```
 
-The response contains `image` (class_id, label, confidence, status, message, hint, model_version) and `risk` (level, label, urgent, reasons, recommendation, candidates, image_used, knowledge_version, disclaimer). `risk.level` is a language-independent code, `high`, `medium`, `low` or `null` (not assessed); `risk.label` is its translated text. An unreadable image or Back Ground returns 200 with status invalid, plus symptom warnings if any. A model failure returns 503 with the symptom-based risk. Bad input returns 422; an oversized request 413; busy 429. `confidence` is only the model's output score. `hint` is set only for an uncertain image whose top class clearly leads (uncalibrated guards in `image_predictor.py`); when that class has high priority in the knowledge base the level is raised to at least `medium` with a reason, never to `high`. `model_version` is the SHA256 of the loaded H5 file.
+The response contains `image` (class_id, label, confidence, status, message, hint, model_version) and `risk` (level, label, urgent, destination, destination_text, reasons, recommendation, first_aid, warnings, rules, candidates, image_used, knowledge_version, disclaimer). `risk.level` is a language-independent code, `red`, `yellow`, `green` or `null` (not assessed); `risk.label` is its translated text and `urgent` is true for red. `destination` is a code (`eye_emergency`, `emergency`, `eye_today`, `doctor_today`, `eye_doctor`, `doctor`, `self_care`); `rules` lists the IDs of every matching rule, or `needs_confirmation` when a green result was withheld. `warnings` carries the corticosteroid eye-drop warning for every assessed result. An unreadable image or Back Ground returns 200 with status invalid, plus symptom warnings if any. A model failure returns 503 with the symptom-based risk. Bad input returns 422; an oversized request 413; busy 429. `confidence` is only the model's output score. `hint` is set only for an uncertain image whose top class clearly leads (uncalibrated guards in `image_predictor.py`); it only counts in rules marked `hint_ok`, and the reasons then say the image result is uncertain. `model_version` is the SHA256 of the loaded H5 file.
 
 ## 7. Testing and troubleshooting
 

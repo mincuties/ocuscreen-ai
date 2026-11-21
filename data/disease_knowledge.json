@@ -1,5 +1,5 @@
 {
-  "version": "0.1.0-prototype",
+  "version": "0.2.0-prototype",
   "disclaimer": {
     "en": "Experimental screening aid, not clinically validated. Priority levels and match points are not a diagnosis or a probability of disease.",
     "vi": "Bản thử nghiệm hỗ trợ sàng lọc, chưa được thẩm định lâm sàng. Mức ưu tiên và điểm khớp không phải chẩn đoán hay xác suất mắc bệnh."
@@ -10,14 +10,16 @@
       "label": {
         "en": "Gritty feeling / something in the eye",
         "vi": "Cộm xốn / cảm giác có dị vật"
-      }
+      },
+      "mild": true
     },
     {
       "id": "itch",
       "label": {
         "en": "Itchy eyes",
         "vi": "Ngứa mắt"
-      }
+      },
+      "mild": true
     },
     {
       "id": "pain",
@@ -45,7 +47,8 @@
       "label": {
         "en": "Watery eyes",
         "vi": "Chảy nước mắt"
-      }
+      },
+      "mild": true
     },
     {
       "id": "blurred",
@@ -73,7 +76,8 @@
       "label": {
         "en": "Dry / burning eyes",
         "vi": "Khô / rát mắt"
-      }
+      },
+      "mild": true
     },
     {
       "id": "red_eye",
@@ -87,6 +91,14 @@
       "label": {
         "en": "Lump on the eyelid",
         "vi": "Có cục ở mí mắt"
+      },
+      "mild": true
+    },
+    {
+      "id": "lid_swelling",
+      "label": {
+        "en": "Swollen eyelid or swelling around the eye",
+        "vi": "Sưng mí mắt hoặc sưng quanh mắt"
       }
     },
     {
@@ -94,7 +106,8 @@
       "label": {
         "en": "Crusts at the base of the eyelashes",
         "vi": "Vảy ở chân lông mi"
-      }
+      },
+      "mild": true
     },
     {
       "id": "fever",
@@ -293,76 +306,528 @@
       "priority": "medium"
     }
   },
-  "urgent_symptoms": [
-    "severe_pain",
-    "vision_loss",
-    "photophobia",
-    "headache_nausea",
-    "injury",
-    "chemical",
-    "blurred",
-    "double_vision",
-    "visual_curtain",
-    "flashes_floaters"
-  ],
-  "urgent_combinations": [
+  "triage_rules": [
     {
-      "id": "contacts_red",
-      "all_symptoms": [
-        "contacts",
+      "id": "chemical",
+      "level": "red",
+      "destination": "eye_emergency",
+      "all": [
+        "chemical"
+      ],
+      "first_aid": [
+        "rinse"
+      ],
+      "reason": {
+        "en": "Chemical splash in the eye",
+        "vi": "Hóa chất bắn vào mắt"
+      }
+    },
+    {
+      "id": "injury",
+      "level": "red",
+      "destination": "eye_emergency",
+      "all": [
+        "injury"
+      ],
+      "first_aid": [
+        "injury_care"
+      ],
+      "reason": {
+        "en": "Eye injury or object stuck in the eye",
+        "vi": "Chấn thương mắt hoặc dị vật mắc trong mắt"
+      }
+    },
+    {
+      "id": "danger_signs",
+      "level": "red",
+      "destination": "eye_emergency",
+      "any": [
+        "vision_loss",
+        "visual_curtain",
+        "flashes_floaters",
+        "severe_pain",
+        "photophobia",
+        "double_vision",
+        "headache_nausea"
+      ],
+      "reason": {
+        "en": "Danger signs: {symptoms}",
+        "vi": "Dấu hiệu nguy hiểm: {symptoms}"
+      }
+    },
+    {
+      "id": "blurred_new",
+      "level": "red",
+      "destination": "eye_emergency",
+      "all": [
+        "blurred"
+      ],
+      "duration": [
+        "lt_1d",
+        "unknown"
+      ],
+      "reason": {
+        "en": "Blurred vision that started within the last day, or when it started is unknown",
+        "vi": "Nhìn mờ mới trong vòng một ngày, hoặc không rõ bắt đầu từ khi nào"
+      }
+    },
+    {
+      "id": "blurred_with",
+      "level": "red",
+      "destination": "eye_emergency",
+      "all": [
+        "blurred"
+      ],
+      "any": [
+        "pain",
+        "pain_movement",
+        "red_eye",
+        "discharge",
+        "bulging",
+        "contacts"
+      ],
+      "reason": {
+        "en": "Blurred vision together with: {symptoms}",
+        "vi": "Nhìn mờ kèm: {symptoms}"
+      }
+    },
+    {
+      "id": "contacts_symptoms",
+      "level": "red",
+      "destination": "eye_emergency",
+      "all": [
+        "contacts"
+      ],
+      "any": [
+        "pain",
+        "discharge",
         "red_eye"
       ],
-      "image_signs": [],
+      "first_aid": [
+        "remove_lenses"
+      ],
       "reason": {
-        "en": "Red eye while wearing contact lenses",
-        "vi": "Đỏ mắt khi dùng kính áp tròng"
+        "en": "Contact lens wearer with: {symptoms}",
+        "vi": "Đang dùng kính áp tròng và có: {symptoms}"
       }
     },
     {
       "id": "contacts_image",
-      "all_symptoms": [
+      "level": "red",
+      "destination": "eye_emergency",
+      "all": [
         "contacts"
       ],
-      "image_signs": [
-        "Redness"
+      "image": [
+        "Redness",
+        "Discharge",
+        "Cornea Abnormal"
+      ],
+      "hint_ok": true,
+      "first_aid": [
+        "remove_lenses"
       ],
       "reason": {
-        "en": "Image suggests a red eye while wearing contact lenses",
-        "vi": "Ảnh gợi ý đỏ mắt khi dùng kính áp tròng"
+        "en": "Contact lens wearer; the photo suggests: {sign}",
+        "vi": "Đang dùng kính áp tròng; ảnh gợi ý: {sign}"
       }
     },
     {
       "id": "orbit",
-      "all_symptoms": [
-        "fever",
-        "pain_movement"
+      "level": "red",
+      "destination": "emergency",
+      "all": [
+        "fever"
       ],
-      "image_signs": [],
+      "any": [
+        "pain_movement",
+        "bulging",
+        "lid_swelling"
+      ],
       "reason": {
-        "en": "Fever with pain when moving the eye",
-        "vi": "Sốt kèm đau khi đảo mắt"
+        "en": "Fever with: {symptoms}",
+        "vi": "Sốt kèm: {symptoms}"
+      }
+    },
+    {
+      "id": "orbit_image",
+      "level": "red",
+      "destination": "emergency",
+      "all": [
+        "fever"
+      ],
+      "image": [
+        "Swelling",
+        "Bulging Eye"
+      ],
+      "hint_ok": true,
+      "reason": {
+        "en": "Fever; the photo suggests: {sign}",
+        "vi": "Sốt; ảnh gợi ý: {sign}"
+      }
+    },
+    {
+      "id": "infant_symptoms",
+      "level": "red",
+      "destination": "emergency",
+      "age": [
+        "infant"
+      ],
+      "any": [
+        "gritty",
+        "itch",
+        "pain",
+        "severe_pain",
+        "discharge",
+        "tearing",
+        "blurred",
+        "vision_loss",
+        "photophobia",
+        "dry",
+        "red_eye",
+        "lid_lump",
+        "lid_swelling",
+        "crusts",
+        "fever",
+        "pain_movement",
+        "double_vision",
+        "headache_nausea",
+        "injury",
+        "chemical",
+        "yellow_skin",
+        "dark_urine",
+        "fatigue",
+        "palpitations",
+        "breathless",
+        "bulging",
+        "flashes_floaters",
+        "visual_curtain"
+      ],
+      "reason": {
+        "en": "Baby under 3 months with: {symptoms}",
+        "vi": "Trẻ dưới 3 tháng tuổi có: {symptoms}"
+      }
+    },
+    {
+      "id": "infant_image",
+      "level": "red",
+      "destination": "emergency",
+      "age": [
+        "infant"
+      ],
+      "image": [
+        "Redness",
+        "Blood Patch",
+        "Swelling",
+        "Discharge",
+        "Watery",
+        "Cornea Abnormal",
+        "Eyelid Abnormal",
+        "Yellow Eye",
+        "Bulging Eye",
+        "Pale Inner Eyelid"
+      ],
+      "hint_ok": true,
+      "reason": {
+        "en": "Baby under 3 months; the photo suggests: {sign}",
+        "vi": "Trẻ dưới 3 tháng tuổi; ảnh gợi ý: {sign}"
+      }
+    },
+    {
+      "id": "cornea_supported",
+      "level": "red",
+      "destination": "eye_emergency",
+      "image": [
+        "Cornea Abnormal"
+      ],
+      "any": [
+        "pain",
+        "red_eye",
+        "discharge",
+        "photophobia",
+        "blurred",
+        "contacts"
+      ],
+      "reason": {
+        "en": "Corneal-area abnormality in the photo, with: {symptoms}",
+        "vi": "Ảnh có bất thường vùng giác mạc, kèm: {symptoms}"
+      }
+    },
+    {
+      "id": "jaundice_fever",
+      "level": "red",
+      "destination": "emergency",
+      "all": [
+        "yellow_skin",
+        "fever"
+      ],
+      "reason": {
+        "en": "Yellow skin or eyes with fever",
+        "vi": "Vàng da hoặc vàng mắt kèm sốt"
+      }
+    },
+    {
+      "id": "jaundice_fever_image",
+      "level": "red",
+      "destination": "emergency",
+      "all": [
+        "fever"
+      ],
+      "image": [
+        "Yellow Eye"
+      ],
+      "reason": {
+        "en": "Fever; the photo suggests: {sign}",
+        "vi": "Sốt; ảnh gợi ý: {sign}"
+      }
+    },
+    {
+      "id": "bulging_with",
+      "level": "red",
+      "destination": "eye_emergency",
+      "all": [
+        "bulging"
+      ],
+      "any": [
+        "pain",
+        "pain_movement",
+        "red_eye"
+      ],
+      "reason": {
+        "en": "Newly bulging eye with: {symptoms}",
+        "vi": "Mắt lồi mới xuất hiện kèm: {symptoms}"
+      }
+    },
+    {
+      "id": "bulging_image_with",
+      "level": "red",
+      "destination": "eye_emergency",
+      "image": [
+        "Bulging Eye"
+      ],
+      "any": [
+        "pain",
+        "pain_movement",
+        "red_eye"
+      ],
+      "reason": {
+        "en": "The photo suggests a bulging eye, with: {symptoms}",
+        "vi": "Ảnh gợi ý mắt lồi, kèm: {symptoms}"
+      }
+    },
+    {
+      "id": "cornea_image",
+      "level": "yellow",
+      "destination": "eye_today",
+      "image": [
+        "Cornea Abnormal"
+      ],
+      "hint_ok": true,
+      "reason": {
+        "en": "The photo suggests: {sign}",
+        "vi": "Ảnh gợi ý: {sign}"
+      }
+    },
+    {
+      "id": "painful_red_eye",
+      "level": "yellow",
+      "destination": "eye_today",
+      "all": [
+        "pain",
+        "red_eye"
+      ],
+      "reason": {
+        "en": "Painful red eye",
+        "vi": "Mắt đỏ và đau"
+      }
+    },
+    {
+      "id": "yellow_eye_image",
+      "level": "yellow",
+      "destination": "doctor_today",
+      "image": [
+        "Yellow Eye"
+      ],
+      "hint_ok": true,
+      "reason": {
+        "en": "The photo suggests: {sign}",
+        "vi": "Ảnh gợi ý: {sign}"
+      }
+    },
+    {
+      "id": "bulging_image",
+      "level": "yellow",
+      "destination": "doctor",
+      "image": [
+        "Bulging Eye"
+      ],
+      "hint_ok": true,
+      "reason": {
+        "en": "The photo suggests: {sign}",
+        "vi": "Ảnh gợi ý: {sign}"
+      }
+    },
+    {
+      "id": "pale_image",
+      "level": "yellow",
+      "destination": "doctor",
+      "image": [
+        "Pale Inner Eyelid"
+      ],
+      "reason": {
+        "en": "The photo suggests: {sign}",
+        "vi": "Ảnh gợi ý: {sign}"
+      }
+    },
+    {
+      "id": "image_sign",
+      "level": "yellow",
+      "destination": "eye_doctor",
+      "image": [
+        "Redness",
+        "Blood Patch",
+        "Swelling",
+        "Discharge",
+        "Watery",
+        "Eyelid Abnormal"
+      ],
+      "reason": {
+        "en": "The photo suggests: {sign}",
+        "vi": "Ảnh gợi ý: {sign}"
       }
     },
     {
       "id": "jaundice",
-      "all_symptoms": [
+      "level": "yellow",
+      "destination": "doctor_today",
+      "all": [
         "yellow_skin"
       ],
-      "image_signs": [],
       "reason": {
         "en": "Self-reported yellow skin or yellow eyes",
         "vi": "Tự ghi nhận vàng da hoặc vàng mắt"
       }
     },
     {
-      "id": "new_bulging",
-      "all_symptoms": [
+      "id": "bulging",
+      "level": "yellow",
+      "destination": "doctor",
+      "all": [
         "bulging"
       ],
-      "image_signs": [],
       "reason": {
         "en": "Self-reported newly bulging eye",
         "vi": "Tự ghi nhận mắt lồi mới xuất hiện"
+      }
+    },
+    {
+      "id": "systemic",
+      "level": "yellow",
+      "destination": "doctor",
+      "any": [
+        "fever",
+        "fatigue",
+        "palpitations",
+        "breathless",
+        "dark_urine"
+      ],
+      "reason": {
+        "en": "Whole-body symptoms: {symptoms}",
+        "vi": "Triệu chứng toàn thân: {symptoms}"
+      }
+    },
+    {
+      "id": "contacts_mild",
+      "level": "yellow",
+      "destination": "eye_doctor",
+      "all": [
+        "contacts"
+      ],
+      "any": [
+        "gritty",
+        "itch",
+        "dry",
+        "tearing",
+        "lid_lump",
+        "crusts"
+      ],
+      "first_aid": [
+        "remove_lenses"
+      ],
+      "reason": {
+        "en": "Contact lens wearer with: {symptoms}",
+        "vi": "Đang dùng kính áp tròng và có: {symptoms}"
+      }
+    },
+    {
+      "id": "eye_symptoms",
+      "level": "yellow",
+      "destination": "eye_doctor",
+      "any": [
+        "pain",
+        "discharge",
+        "red_eye",
+        "blurred",
+        "pain_movement",
+        "lid_swelling"
+      ],
+      "reason": {
+        "en": "Symptoms that need an eye examination: {symptoms}",
+        "vi": "Triệu chứng cần khám mắt: {symptoms}"
+      }
+    },
+    {
+      "id": "persistent",
+      "level": "yellow",
+      "destination": "eye_doctor",
+      "any": [
+        "gritty",
+        "itch",
+        "pain",
+        "severe_pain",
+        "discharge",
+        "tearing",
+        "blurred",
+        "vision_loss",
+        "photophobia",
+        "dry",
+        "red_eye",
+        "lid_lump",
+        "lid_swelling",
+        "crusts",
+        "fever",
+        "pain_movement",
+        "double_vision",
+        "headache_nausea",
+        "injury",
+        "chemical",
+        "yellow_skin",
+        "dark_urine",
+        "fatigue",
+        "palpitations",
+        "breathless",
+        "bulging",
+        "flashes_floaters",
+        "visual_curtain"
+      ],
+      "duration": [
+        "gt_7d"
+      ],
+      "reason": {
+        "en": "Symptoms for more than 7 days",
+        "vi": "Triệu chứng kéo dài hơn 7 ngày"
+      }
+    },
+    {
+      "id": "infant_checkup",
+      "level": "yellow",
+      "destination": "doctor",
+      "age": [
+        "infant"
+      ],
+      "reason": {
+        "en": "Babies under 3 months should be checked by a doctor rather than watched at home",
+        "vi": "Trẻ dưới 3 tháng tuổi nên được bác sĩ kiểm tra thay vì tự theo dõi tại nhà"
       }
     }
   ],
@@ -578,7 +1043,7 @@
     }
   ],
   "rule_notes": {
-    "en": "The weights of 2 points per image match + 1 point per symptom and the 0.60 threshold are uncalibrated engineering choices, not rules confirmed by the sources. Leaving an item unchecked is not evidence of absence. Normal does not subtract symptom points.",
-    "vi": "Các trọng số 2 điểm ảnh + 1 điểm mỗi triệu chứng và ngưỡng 0.60 là thiết kế kỹ thuật chưa hiệu chuẩn, không phải quy tắc được các nguồn xác nhận. Bỏ chọn không được coi là bằng chứng loại trừ. Normal không trừ điểm triệu chứng."
+    "en": "Triage rules are transparent engineering choices drawn from the sources below; they have not been reviewed by an eye specialist and must be before any real use. The highest matching level wins; among the rules at that level, the most urgent destination is used. A green result needs a known age group and the user to confirm they reviewed the whole symptom list, because an unchecked item is not evidence of absence. Normal never lowers a level. Pattern ranking (2 points per image match + 1 point per symptom) and the 0.60 image threshold are uncalibrated.",
+    "vi": "Các luật phân tầng là lựa chọn kỹ thuật minh bạch dựa trên các nguồn bên dưới; chưa được bác sĩ chuyên khoa mắt duyệt và phải được duyệt trước khi dùng thật. Mức cao nhất trong các luật khớp được chọn; trong các luật ở mức đó, nơi khám gấp nhất được dùng. Kết quả xanh cần biết nhóm tuổi và người dùng xác nhận đã xem hết danh sách triệu chứng, vì bỏ trống một mục không phải bằng chứng là không có. Normal không bao giờ hạ mức. Cách xếp nhóm biểu hiện (2 điểm mỗi dấu hiệu ảnh + 1 điểm mỗi triệu chứng) và ngưỡng ảnh 0.60 chưa được hiệu chuẩn."
   }
 }

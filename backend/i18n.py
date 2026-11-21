@@ -82,33 +82,27 @@ MESSAGES = {
         "en": "Image analyzed. The model score is not a probability of disease.",
         "vi": "Đã phân tích ảnh. Điểm model không phải xác suất mắc bệnh.",
     },
-    "level_high": {"en": "High", "vi": "Cao"},
-    "level_medium": {"en": "Medium", "vi": "Vừa"},
-    "level_low": {"en": "Low", "vi": "Thấp"},
+    "level_red": {"en": "Red · go now", "vi": "Đỏ · đi khám ngay"},
+    "level_yellow": {"en": "Yellow · see a doctor", "vi": "Vàng · cần đi khám"},
+    "level_green": {"en": "Green · self-care and watch", "vi": "Xanh · tự theo dõi"},
     "level_none": {"en": "Not assessed", "vi": "Chưa đánh giá"},
-    "advice_urgent": {
-        "en": "Go to a medical facility or eye specialist now to be assessed. "
-        "Do not wait to retake the photo or for the AI result.",
-        "vi": "Đến cơ sở y tế hoặc chuyên khoa mắt ngay để được đánh giá. "
-        "Không chờ chụp lại ảnh hay kết quả AI.",
+    "advice_red": {
+        "en": "Seek care now. Do not wait to retake the photo or for the AI result.",
+        "vi": "Đi khám ngay. Không chờ chụp lại ảnh hay kết quả AI.",
     },
-    "advice_high": {
-        "en": "A doctor should assess this soon, preferably today. "
-        "If there is severe pain or reduced vision, seek care immediately.",
-        "vi": "Cần được bác sĩ đánh giá sớm, ưu tiên trong ngày. "
-        "Nếu đau nhiều hoặc giảm thị lực, đi khám ngay.",
+    "advice_yellow": {
+        "en": "Arrange an examination at the place shown below. If severe pain, "
+        "vision changes or any danger sign appears, seek care immediately.",
+        "vi": "Sắp xếp đi khám tại nơi gợi ý bên dưới. Nếu đau nhiều, thay đổi thị lực "
+        "hoặc có dấu hiệu nguy hiểm, đi khám ngay.",
     },
-    "advice_medium": {
-        "en": "Arrange an eye examination if symptoms persist, recur or worsen. "
-        "If severe pain or vision changes appear, seek care immediately.",
-        "vi": "Sắp xếp khám mắt nếu triệu chứng còn tiếp diễn, tái phát hoặc tăng lên. "
-        "Nếu xuất hiện đau nhiều hay thay đổi thị lực, đi khám ngay.",
-    },
-    "advice_low": {
-        "en": "No priority signs were found in the information provided. This does not "
-        "rule out eye disease; get examined if you feel discomfort or are worried.",
-        "vi": "Chưa ghi nhận dấu hiệu ưu tiên từ thông tin đã nhập. Điều này không loại "
-        "trừ bệnh mắt; khám nếu có khó chịu hoặc lo lắng.",
+    "advice_green": {
+        "en": "No sign needing an examination was found in your answers. Rest your "
+        "eyes and watch. See an eye doctor if it is not better within a few days, "
+        "gets worse, or you are worried. This does not rule out eye disease.",
+        "vi": "Chưa thấy dấu hiệu cần đi khám từ thông tin đã nhập. Cho mắt nghỉ ngơi và "
+        "theo dõi. Đi khám mắt nếu không đỡ sau vài ngày, nặng hơn hoặc bạn lo lắng. "
+        "Điều này không loại trừ bệnh mắt.",
     },
     "advice_none": {
         "en": "Not enough information to classify. Retake the eye photo and review "
@@ -116,6 +110,77 @@ MESSAGES = {
         "eye doctor.",
         "vi": "Chưa đủ thông tin để phân loại. Hãy chụp lại ảnh mắt và kiểm tra "
         "checklist triệu chứng. Nếu lo lắng hoặc tình trạng kéo dài, hãy đi khám mắt.",
+    },
+    "advice_confirm": {
+        "en": "Please choose who this is for, review the whole symptom list and confirm "
+        "that you have ticked everything that applies, then run the screening again.",
+        "vi": "Hãy chọn người cần sàng lọc, xem hết danh sách triệu chứng và xác nhận "
+        "đã chọn mọi mục phù hợp, rồi phân tích lại.",
+    },
+    "dest_eye_emergency": {
+        "en": "Eye emergency service or hospital emergency department, now",
+        "vi": "Cấp cứu mắt hoặc khoa cấp cứu bệnh viện, ngay bây giờ",
+    },
+    "dest_emergency": {
+        "en": "Hospital emergency department (children's emergency for a child), now",
+        "vi": "Khoa cấp cứu bệnh viện (cấp cứu nhi nếu là trẻ em), ngay bây giờ",
+    },
+    "dest_eye_today": {
+        "en": "Eye doctor today",
+        "vi": "Bác sĩ mắt trong hôm nay",
+    },
+    "dest_doctor_today": {
+        "en": "General doctor today (ask for an urgent appointment)",
+        "vi": "Bác sĩ đa khoa trong hôm nay (xin khám sớm)",
+    },
+    "dest_eye_doctor": {
+        "en": "Eye doctor within the next few days",
+        "vi": "Bác sĩ mắt trong vài ngày tới",
+    },
+    "dest_doctor": {
+        "en": "General doctor within the next few days, for a general check-up",
+        "vi": "Bác sĩ đa khoa trong vài ngày tới, để kiểm tra toàn thân",
+    },
+    "dest_self_care": {
+        "en": "Self-care at home; see an eye doctor if it does not improve",
+        "vi": "Tự chăm sóc tại nhà; đi khám mắt nếu không đỡ",
+    },
+    "first_aid_rinse": {
+        "en": "Rinse the eye straight away with plenty of clean running water for "
+        "15 to 20 minutes, holding the eyelids open, then go to emergency care.",
+        "vi": "Rửa mắt ngay bằng nhiều nước sạch đang chảy trong 15 đến 20 phút, giữ "
+        "mí mắt mở, rồi đi cấp cứu.",
+    },
+    "first_aid_injury_care": {
+        "en": "Do not rub or press on the eye and do not try to remove an object stuck "
+        "in it.",
+        "vi": "Không dụi, không ấn vào mắt và không tự lấy dị vật đang mắc trong mắt ra.",
+    },
+    "first_aid_remove_lenses": {
+        "en": "Take your contact lenses out now and keep them out until a doctor has "
+        "checked your eye. Bring the lenses and their case with you.",
+        "vi": "Tháo kính áp tròng ngay và không đeo lại cho tới khi bác sĩ kiểm tra mắt. "
+        "Mang theo kính và hộp đựng kính khi đi khám.",
+    },
+    "warning_steroids": {
+        "en": "Do not use eye drops or ointments containing corticosteroids (for "
+        "example dexamethasone or prednisolone) unless an eye doctor has examined you "
+        "and prescribed them.",
+        "vi": "Không tự dùng thuốc nhỏ hoặc mỡ tra mắt có corticoid (ví dụ dexamethason, "
+        "prednisolon) khi chưa được bác sĩ mắt khám và kê đơn.",
+    },
+    "reason_mild": {
+        "en": "Only mild symptoms: {symptoms}",
+        "vi": "Chỉ có triệu chứng nhẹ: {symptoms}",
+    },
+    "reason_image_not_used": {
+        "en": "The photo could not be used, so this result is based on your answers "
+        "only.",
+        "vi": "Không dùng được ảnh nên kết quả này chỉ dựa trên câu trả lời của bạn.",
+    },
+    "triage_field_invalid": {
+        "en": "Invalid age group, duration or confirmation value.",
+        "vi": "Nhóm tuổi, thời gian kéo dài hoặc giá trị xác nhận không hợp lệ.",
     },
     "reason_uncertain_hint": {
         "en": "The photo may show: {sign}. The image result is uncertain, so have it "

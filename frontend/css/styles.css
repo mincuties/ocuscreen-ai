@@ -235,19 +235,44 @@ button.secondary {
   background: #e8eef0;
 }
 
-.high {
+.red {
   background: #ffe4e1;
   color: #a33325;
 }
 
-.medium {
+.yellow {
   background: #fff0d9;
   color: #926019;
 }
 
-.low {
+.green {
   background: #dff4e8;
   color: #216b47;
+}
+
+.destination {
+  font-weight: 700;
+}
+
+.triage-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin: 14px 0 10px;
+}
+
+.triage-fields label {
+  display: grid;
+  gap: 6px;
+  font-weight: 650;
+}
+
+.triage-fields select {
+  font: inherit;
+  padding: 8px;
+  border: 1px solid #c9d6d5;
+  border-radius: 8px;
+  background: #fff;
 }
 
 .reason {

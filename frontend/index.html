@@ -121,11 +121,28 @@
        </div>
       </fieldset>
       <p class="hint" data-i18n="emptySearch" id="emptySearch" hidden role="status">No symptoms found. Try another keyword.</p>
-      <div class="notice urgent" hidden id="urgentHint" role="alert">
-  <strong data-i18n="urgentTitle">Some signs need immediate care.</strong>
-  <span id="urgentReasons"></span>
-  <span data-i18n="urgentTail">Do not wait for the image analysis to seek medical help.</span>
-</div>
+      <div class="triage-fields">
+       <label for="ageGroup"><span data-i18n="ageLabel">Who is this for?</span>
+        <select id="ageGroup" required>
+         <option value="" data-i18n="choose">Choose…</option>
+         <option value="infant" data-i18n="ageInfant">Baby under 3 months</option>
+         <option value="child" data-i18n="ageChild">Child (3 months to 15 years)</option>
+         <option value="adult" data-i18n="ageAdult">Adult</option>
+        </select>
+       </label>
+       <label for="duration"><span data-i18n="durationLabel">How long has it lasted?</span>
+        <select id="duration">
+         <option value="" data-i18n="durationUnknown">Not sure / no symptoms</option>
+         <option value="lt_1d" data-i18n="durationDay">Less than 1 day</option>
+         <option value="1_7d" data-i18n="durationWeek">1 to 7 days</option>
+         <option value="gt_7d" data-i18n="durationLong">More than 7 days</option>
+        </select>
+       </label>
+      </div>
+      <label class="choice confirm">
+       <input id="confirmed" required type="checkbox"/>
+       <span data-i18n="confirmLabel">I have read the whole list and ticked every symptom I have.</span>
+      </label>
       <div class="actions">
        <button disabled="" id="submit" type="submit">
         Run screening
@@ -155,10 +172,16 @@
     </p>
     <p id="advice">
     </p>
+    <p class="destination" id="destination" hidden></p>
+    <div id="firstAid" hidden>
+     <h3 data-i18n="firstAidTitle">Do this now</h3>
+     <ul id="firstAidList"></ul>
+    </div>
     <ul class="reason" id="reasons">
     </ul>
     <div id="candidates">
     </div>
+    <ul class="hint" id="warnings"></ul>
     <p class="hint" id="disclaimer">
     </p>
     <p class="hint" id="printMeta"></p>
