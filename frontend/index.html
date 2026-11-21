@@ -82,7 +82,21 @@
       <input accept="image/jpeg,image/png,image/webp" aria-describedby="photoGuide fileMeta" id="image" required="" type="file"/>
       <p class="hint file-meta" id="fileMeta">
       </p>
-      <img alt="Selected eye photo" data-i18n-attr="alt:previewAlt" hidden="" id="preview"/>
+      <div class="crop-editor">
+       <p class="hint" data-i18n="cropHint" id="cropHint">Drag the square so your eye sits inside the circle. Only this square is sent.</p>
+       <div class="crop-frame">
+        <img alt="Selected eye photo" data-i18n-attr="alt:previewAlt" hidden="" id="preview"/>
+        <div aria-describedby="cropHint" aria-label="Crop area" class="crop-box" data-i18n-attr="aria-label:cropBox" id="cropBox" role="group" tabindex="0">
+         <span class="crop-guide"></span>
+        </div>
+       </div>
+       <div class="crop-controls">
+        <label for="cropSize"><span data-i18n="cropSize">Square size</span>
+         <input id="cropSize" max="100" min="20" type="range" value="100"/>
+        </label>
+        <button class="secondary" data-i18n="cropReset" id="cropReset" type="button">Center</button>
+       </div>
+      </div>
       <p class="hint" data-i18n="photoGuide" id="photoGuide">
        Use good lighting and keep the eye centered. Do not use color filters. The image must be at least 64×64 and no larger than 12 megapixels.
       </p>
