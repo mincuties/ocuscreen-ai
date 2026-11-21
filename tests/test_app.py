@@ -30,7 +30,7 @@ def photo(color="white"):
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setattr(api, "load_artifacts", lambda: None)
-    monkeypatch.setattr(api, "predict_image", lambda b, lang="en": prediction())
+    monkeypatch.setattr(api, "predict_image", lambda b, lang="en", explain=False: prediction())
     with TestClient(api.app) as c:
         yield c
 
@@ -365,13 +365,26 @@ def test_screen_triage_fields(client):
 
 @pytest.mark.parametrize(
     "data",
-    [{"age_group": "teen"}, {"duration": "2d"}, {"confirmed": "yes"}],
+    [{"age_group": "teen"}, {"duration": "2d"}, {"confirmed": "yes"}, {"explain": "1"}],
 )
 def test_screen_rejects_bad_triage_fields(client, data):
     response = screen(client, **data)
     assert response.status_code == 422
     assert response.json()["detail"].startswith("Invalid age group")
     assert not api.app.state.busy
+
+
+def test_screen_passes_the_explain_choice(client, monkeypatch):
+    calls = []
+
+    def fake(b, lang="en", explain=False):
+        calls.append(explain)
+        return prediction()
+
+    monkeypatch.setattr(api, "predict_image", fake)
+    screen(client)
+    screen(client, explain="true")
+    assert calls == [False, True]
 
 
 def test_screen_rejects_duplicate_triage_fields(client):
@@ -396,7 +409,7 @@ def test_bad_symptoms(client, symptoms):
 
 
 def test_invalid_preserves_warning(client, monkeypatch):
-    def invalid(b, lang="en"):
+    def invalid(b, lang="en", explain=False):
         raise ip.InvalidImage("image_unreadable")
 
     monkeypatch.setattr(api, "predict_image", invalid)
@@ -412,7 +425,7 @@ def test_invalid_preserves_warning(client, monkeypatch):
 
 
 def test_missing_model_preserves_warning(client, monkeypatch):
-    def missing(b, lang="en"):
+    def missing(b, lang="en", explain=False):
         raise ip.ModelUnavailable("missing")
 
     monkeypatch.setattr(api, "predict_image", missing)
@@ -550,7 +563,7 @@ def test_symptoms_endpoint_language(client):
 
 
 def test_screen_errors_follow_language(client, monkeypatch):
-    def invalid(b, lang="en"):
+    def invalid(b, lang="en", explain=False):
         raise ip.InvalidImage("image_format")
 
     monkeypatch.setattr(api, "predict_image", invalid)

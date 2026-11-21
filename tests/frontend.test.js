@@ -77,6 +77,16 @@ test('other possibilities come only from a valid image, without background or we
   assert.deepEqual(otherPossibilities({ status: 'invalid', top3: null }), []);
 });
 
+test('attention maps are only taken from the JPEG data URL the API builds', async () => {
+  const { attentionSource } = await import('../frontend/js/components.js');
+  const ok = 'data:image/jpeg;base64,AAAA';
+  assert.equal(attentionSource({ attention: { image: ok } }), ok);
+  for (const image of [{}, { attention: null }, { attention: { image: 'javascript:alert(1)' } },
+    { attention: { image: 'https://example.com/x.jpg' } }, { attention: { image: 42 } }]) {
+    assert.equal(attentionSource(image), null);
+  }
+});
+
 test('upload synchronizes native files, releases previews and preserves cancellation', async () => {
   const { createUpload } = await import('../frontend/js/upload.js');
   const original = { window: globalThis.window, transfer: globalThis.DataTransfer,
@@ -170,11 +180,12 @@ test('API requests send the selected language', async () => {
     await fetchSymptoms();
     setLang('vi');
     await fetchSymptoms();
-    await screenImage(new Blob(['x']), ['itch'], { age_group: 'adult', duration: '', confirmed: true });
+    await screenImage(new Blob(['x']), ['itch'], { age_group: 'adult', duration: '', confirmed: true, explain: false });
     assert.deepEqual(urls, ['/api/symptoms?lang=en', '/api/symptoms?lang=vi', '/api/screen?lang=vi']);
     const form = bodies[2];
     assert.equal(form.get('age_group'), 'adult');
     assert.equal(form.get('confirmed'), 'true');
     assert.equal(form.has('duration'), false);
+    assert.equal(form.get('explain'), 'false');
   } finally { globalThis.fetch = original; setLang('en'); }
 });

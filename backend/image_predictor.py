@@ -7,6 +7,7 @@ os.environ.setdefault("TF_NUM_INTRAOP_THREADS", "2")
 os.environ.setdefault("TF_NUM_INTEROP_THREADS", "1")
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
 import hashlib
+import logging
 from pathlib import Path
 from io import BytesIO
 from threading import RLock
@@ -14,7 +15,10 @@ import warnings
 import numpy as np
 from PIL import Image, ImageOps, UnidentifiedImageError
 
+from backend import attention
 from backend.i18n import DEFAULT, t
+
+log = logging.getLogger("ocuscreen")
 
 ROOT = Path(__file__).resolve().parents[1]
 MODEL_PATH = Path(os.getenv("MODEL_PATH", str(ROOT / "model/keras_model.h5")))
@@ -54,6 +58,8 @@ QUALITY_FLAGS = ("blurry", "dark", "bright", "glare")
 _lock = RLock()
 _model = None
 _labels = None
+# (feature model, head layers) for attention maps; None if the model does not fit.
+_attention = None
 # SHA256 of the loaded H5, returned with each result so outputs can be traced to a file.
 model_version = None
 
@@ -93,7 +99,7 @@ def file_sha256(path):
 
 
 def load_artifacts():
-    global _model, _labels, model_version
+    global _model, _labels, model_version, _attention
     with _lock:
         if _model is not None:
             return _model, _labels
@@ -109,6 +115,14 @@ def load_artifacts():
             if tuple(model.output_shape) != (None, 12):
                 raise ValueError("Model output must be (None, 12).")
             version = file_sha256(MODEL_PATH)
+            try:
+                _attention = attention.split_model(model)
+            except Exception:
+                # Optional feature: the model still serves predictions without it.
+                log.warning(
+                    "Attention maps are unavailable for this model.", exc_info=True
+                )
+                _attention = None
             _model, _labels, model_version = model, labels, version
             return _model, _labels
         except Exception as exc:
@@ -186,15 +200,21 @@ def measure_quality(image):
     }
 
 
-def predict_image(image_bytes, lang=DEFAULT):
+def predict_image(image_bytes, lang=DEFAULT, explain=False):
     image = decode(image_bytes)
     batch = to_batch(image)
     quality = measure_quality(image)
     quality["advice"] = [t(f"quality_{flag}", lang) for flag in quality["flags"]]
     with _lock:
         model, labels = load_artifacts()
+        split = _attention if explain else None
         try:
-            scores = np.asarray(model(batch, training=False), dtype=np.float32)
+            if split:
+                # Same forward pass, also returning the feature map for the map below.
+                features, output = attention.forward(split, batch)
+            else:
+                features, output = None, model(batch, training=False)
+            scores = np.asarray(output, dtype=np.float32)
         except Exception as exc:
             raise ModelUnavailable("Could not run the image model.") from exc
     if scores.shape != (1, 12) or not np.isfinite(scores).all():
@@ -214,6 +234,20 @@ def predict_image(image_bytes, lang=DEFAULT):
         if class_id == 11
         else ("uncertain" if confidence < VALID_MIN else "valid")
     )
+    attention_map = None
+    if split and status == "valid" and label != "Normal":
+        try:
+            with _lock:
+                cam = attention.grad_cam(split[1], features, index)
+            crop = ImageOps.fit(image, (224, 224), Image.Resampling.LANCZOS)
+            attention_map = {
+                "label": label,
+                "image": attention.overlay(crop, cam),
+                "note": t("attention_note", lang),
+            }
+        except Exception:
+            # The map is optional; the prediction stands without it.
+            log.exception("Could not compute the attention map")
     return {
         "class_id": class_id,
         "label": label,
@@ -222,6 +256,7 @@ def predict_image(image_bytes, lang=DEFAULT):
         "message": t(f"image_{status}", lang),
         "hint": uncertain_hint(scores[0], labels) if status == "uncertain" else None,
         "top3": top_scores(scores[0], labels),
+        "attention": attention_map,
         "model_version": model_version,
         "quality": quality,
     }

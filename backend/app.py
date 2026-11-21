@@ -17,7 +17,12 @@ from backend.image_predictor import (
     load_artifacts,
     predict_image,
 )
-from backend.request_validation import buffer_upload, parse_symptoms, parse_triage
+from backend.request_validation import (
+    buffer_upload,
+    parse_flag,
+    parse_symptoms,
+    parse_triage,
+)
 from backend.risk_engine import (
     KB,
     assess_risk,
@@ -86,6 +91,7 @@ def failed_prediction(status: str, message: str) -> dict:
         "model_version": None,
         "quality": None,
         "top3": None,
+        "attention": None,
     }
 
 
@@ -103,7 +109,7 @@ async def screen(request: Request):
     app.state.busy = True
     try:
         await buffer_upload(request, lang)
-        async with request.form(max_files=1, max_fields=5) as form:
+        async with request.form(max_files=1, max_fields=6) as form:
             if len(form.getlist("image")) != 1 or len(form.getlist("symptoms")) > 1:
                 raise HTTPException(422, t("single_fields", lang))
             file = form.get("image")
@@ -111,9 +117,12 @@ async def screen(request: Request):
                 raise HTTPException(422, t("missing_image", lang))
             ids = parse_symptoms(form.get("symptoms", "[]"), lang)
             triage = parse_triage(form, lang)
+            explain = parse_flag(form, "explain", lang)
             image_bytes = await file.read(MAX_BYTES + 1)
             try:
-                prediction = await run_in_threadpool(predict_image, image_bytes, lang)
+                prediction = await run_in_threadpool(
+                    predict_image, image_bytes, lang, explain
+                )
                 app.state.ready = True
             except InvalidImage as exc:
                 prediction = failed_prediction("invalid", t(exc.key, lang))
