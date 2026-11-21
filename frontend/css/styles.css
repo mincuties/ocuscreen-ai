@@ -463,3 +463,14 @@ input[type=search] { width: 100%; min-width: 0; border: 1px solid var(--border);
 .lang-switch button { background: #fff; color: var(--muted); border-radius: 0; padding: 5px 12px; font-size: 12px; }
 .lang-switch button:hover:not(:disabled) { background: #edf3f2; }
 .lang-switch button[aria-pressed=true], .lang-switch button[aria-pressed=true]:hover { background: var(--accent); color: #fff; }
+
+@media print {
+  header, .eyebrow, h1, .intro, .notice, .stepper, form, footer, .skip-link, #printResult {
+    display: none !important;
+  }
+  .result {
+    border: 0;
+    box-shadow: none;
+    margin: 0;
+  }
+}

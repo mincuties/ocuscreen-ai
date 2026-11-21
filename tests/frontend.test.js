@@ -67,6 +67,16 @@ test('Vietnamese symptom search ignores accents and preserves choices', async ()
   assert.equal(filterSymptoms({children: choices}, ''), 2);
 });
 
+test('other possibilities come only from a valid image, without background or weak scores', async () => {
+  const { otherPossibilities } = await import('../frontend/js/components.js');
+  const top3 = [{ label: 'Redness', confidence: 0.62 }, { label: 'Back Ground', confidence: 0.2 },
+    { label: 'Discharge', confidence: 0.16 }];
+  assert.deepEqual(otherPossibilities({ status: 'valid', top3 }).map(i => i.label), ['Discharge']);
+  assert.deepEqual(otherPossibilities({ status: 'uncertain', top3 }), []);
+  assert.deepEqual(otherPossibilities({ status: 'valid', top3: [top3[0], { label: 'Watery', confidence: 0.1 }] }), []);
+  assert.deepEqual(otherPossibilities({ status: 'invalid', top3: null }), []);
+});
+
 test('upload synchronizes native files, releases previews and preserves cancellation', async () => {
   const { createUpload } = await import('../frontend/js/upload.js');
   const original = { window: globalThis.window, transfer: globalThis.DataTransfer,
