@@ -152,6 +152,16 @@ npm test
 - **Phone photo rejected:** the web page downscales photos to a 1600 px long edge before upload; direct API calls must send JPEG/PNG/WebP up to 5 MB and 25 megapixels. HEIC is not supported yet.
 - **Smaller model file:** `python scripts/strip_optimizer.py model/keras_model.h5 model/keras_model_slim.h5` re-saves the model without its optimizer state (about 198 MB → 82 MB, identical outputs, checked by the script). RAM use while serving stays about the same.
 
+### Evaluating the model
+
+`scripts/evaluate.py` measures a model on labeled photos it was not trained on. Put the photos in one folder per class, named exactly as in `model/labels.txt` (for example `test/Cornea Abnormal/001.jpg`), or list them in a CSV with `path,label` columns:
+
+```bash
+python scripts/evaluate.py test/ --model model/keras_model.h5 --out report.json
+```
+
+It prints, per class, sensitivity and specificity with 95% Wilson intervals, PPV and one-vs-rest AUROC, then the share of images accepted and their accuracy at several top-1 thresholds (to choose the 0.60 threshold from data). The JSON adds the confusion matrix and calibration bins (ECE). Images go through the same preprocessing as the server. Keep photos of the same person in one set, and run both model files on the same set to compare them.
+
 ## 8. Knowledge scope
 
 The references in the JSON include NHS pages on red eye, jaundice, bulging eyes and anaemia. These sources support the general descriptions of signs; they do not validate the app's weights or performance. Expert review of the rules, independent test data, calibration and false-negative assessment are needed before any use beyond a demo. An external eye photo cannot detect glaucoma, retinal disease or the cause of cloudiness in the eye. Do not infer a specific disease from the Normal/Cornea Abnormal label alone.
