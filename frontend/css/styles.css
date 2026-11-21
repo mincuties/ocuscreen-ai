@@ -145,12 +145,64 @@ input[type=file] {
   margin: 18px 0;
 }
 
+/* The frame shrinks to the photo, so the crop box can use percentages of it. */
+.crop-editor:has(#preview[hidden]) {
+  display: none;
+}
+
+.crop-frame {
+  position: relative;
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 auto;
+  overflow: hidden;
+  border-radius: 12px;
+  touch-action: none;
+}
+
 #preview {
-  width: 100%;
-  max-height: 270px;
-  object-fit: contain;
+  display: block;
+  max-width: 100%;
+  max-height: 320px;
   border-radius: 12px;
   background: #eef3f2;
+}
+
+.crop-box {
+  position: absolute;
+  box-sizing: border-box;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 9999px rgba(10, 30, 32, .45);
+  cursor: move;
+}
+
+.crop-box:focus-visible {
+  outline: 3px solid #edba60;
+}
+
+.crop-guide {
+  position: absolute;
+  inset: 12%;
+  border: 2px dashed rgba(255, 255, 255, .9);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.crop-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 10px;
+}
+
+.crop-controls label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 14px;
 }
 
 fieldset {

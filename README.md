@@ -25,12 +25,14 @@ The backend, API messages and documentation are in English. The web interface is
 | `backend/i18n.py` | English/Vietnamese message catalog for API responses |
 | `backend/app.py` | FastAPI app and static frontend |
 | `backend/__init__.py` | Python package marker |
-| `data/disease_knowledge.json` | 11 eye labels (including Normal), 28 checklist items, 9 symptom patterns; every user-facing text has `en` and `vi` versions |
+| `data/disease_knowledge.json` | 11 eye labels (including Normal), 29 checklist items, triage rules, 9 symptom patterns; every user-facing text has `en` and `vi` versions |
 | `frontend/index.html` | Semantic page shell: progress, preview, checklist, result |
 | `frontend/css/styles.css` | Responsive styles and interaction states |
 | `frontend/js/app.js` | Coordinates upload, checklist, language and submit state |
 | `frontend/js/i18n.js` | UI strings for English and Vietnamese, language preference |
 | `frontend/js/upload.js` | File input, drag and drop, preview URL lifecycle |
+| `frontend/js/crop.js` | Square crop box with a circle guide, placed by the user over the photo |
+| `frontend/js/resize.js` | Crops and downscales the photo in the browser before upload |
 | `frontend/js/api.js` | API calls, timeouts and error handling |
 | `frontend/js/components.js` | Reusable checklist and result components |
 | `frontend/js/validation.js` | File checks and warnings from the knowledge base |
@@ -48,7 +50,7 @@ Do not commit `.venv311`, user photos, datasets or secrets. The H5 file is about
 ## 2. Defensive design decisions
 
 - Labels are read with `line.strip().split(' ', 1)`, separating the integer ID from the name. The full 0–11 order is checked to avoid mapping outputs to the wrong class.
-- Preprocessing matches the original main.py: EXIF orientation → RGB → center resize/crop with `ImageOps.fit(..., (224,224), LANCZOS)` → float32 → `(img / 127.5) - 1.0`.
+- Preprocessing matches the original main.py: EXIF orientation → RGB → center resize/crop with `ImageOps.fit(..., (224,224), LANCZOS)` → float32 → `(img / 127.5) - 1.0`. Because a centre crop can cut off an eye near the edge of a wide photo, the page asks the user to place a square over the eye (with a circle as a guide) and sends only that square; the default square is the same centre crop. MediaPipe face landmarks were not used: they need the whole face and fail on close-ups and everted eyelids, which are the photos this app asks for.
 - The current contract is multiclass softmax `(None,12)` with argmax. Having 12 classes does not mean multi-label. If the actual model uses sigmoid or logits, the API reports a contract error; confirm the output before changing the algorithm.
 - Class 11 always asks for a retake and is never used to infer disease. A model score below 0.60 is treated as uncertain. This threshold is a prototype assumption that needs calibration.
 - `Normal` does not cancel symptoms. An invalid image with no symptoms returns `Not assessed`, not Green. Symptom warnings still appear when the model cannot load.
@@ -164,6 +166,13 @@ python scripts/evaluate.py test/ --model model/keras_model.h5 --out report.json
 ```
 
 It prints, per class, sensitivity and specificity with 95% Wilson intervals, PPV and one-vs-rest AUROC, then the share of images accepted and their accuracy at several top-1 thresholds (to choose the 0.60 threshold from data), and the accuracy on images with each photo-quality flag (to check whether the flags really mark photos the model gets wrong). The JSON adds the confusion matrix and calibration bins (ECE). Images go through the same preprocessing as the server. Keep photos of the same person in one set, and run both model files on the same set to compare them.
+
+### After retraining the model
+
+- Try padding the photo to a square (letterbox) instead of the centre crop in `to_batch`, train with the same preprocessing, and keep it only if `scripts/evaluate.py` shows it is better on the same test set.
+- Recalibrate the 0.60 valid threshold, the hint guards and the photo-quality flags from the evaluation report.
+- Check the Grad-CAM maps on real photos; they turn off by themselves if the new model is not a chain of layers ending in a softmax Dense layer.
+- Have an eye specialist review the rules and the cases in `tests/triage_cases.json`.
 
 ## 8. Knowledge scope
 

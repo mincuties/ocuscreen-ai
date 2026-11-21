@@ -3,6 +3,7 @@ import { byId as $, renderSymptoms, renderResult, filterSymptoms } from './compo
 import { applyTranslations, getLang, setLang, t } from './i18n.js';
 import { matchRules, ruleReason } from './validation.js';
 import { prepareUpload } from './resize.js';
+import { createCropper } from './crop.js';
 
 import { createUpload } from './upload.js';
 
@@ -39,6 +40,8 @@ function updateControls() {
   $('symptomSearch').disabled = state.busy || !state.loaded;
   $('symptomField').disabled = state.busy || !state.loaded;
   for (const id of ['ageGroup', 'duration', 'confirmed', 'explain']) $(id).disabled = state.busy || !state.loaded;
+  $('cropSize').disabled = state.busy;
+  $('cropReset').disabled = state.busy;
   $('screenForm').querySelector('[type=reset]').disabled = state.busy;
   $('screenForm').setAttribute('aria-busy', String(state.busy));
   $('selectedCount').textContent = t('selectedCount', { count: selected().length });
@@ -57,12 +60,18 @@ function applyLanguage() {
   renderStatus();
   updateControls();
 }
+const cropper = createCropper({
+  preview: $('preview'), box: $('cropBox'), sizeInput: $('cropSize'), resetButton: $('cropReset'),
+  isBusy: () => state.busy,
+  onChange: clearResult, // A result is for the square that was sent.
+});
 const upload = createUpload({
   input: $('image'), dropzone: $('dropzone'), preview: $('preview'), meta: $('fileMeta'),
   isBusy: () => state.busy,
   onError: message => statusText(message, true),
   onChange: file => {
     state.file = file;
+    if (!file) cropper.clear();
     clearResult();
     status(file ? 'imageReady' : 'chooseImage');
     updateControls();
@@ -121,6 +130,7 @@ for (const id of ['checks', 'ageGroup', 'duration', 'confirmed']) {
 $('screenForm').addEventListener('reset', () => {
   clearResult();
   upload.clear();
+  cropper.clear();
   state.file = null;
   $('fileMeta').textContent = '';
   $('urgentHint').hidden = true;
@@ -138,7 +148,7 @@ $('screenForm').addEventListener('submit', async event => {
   try {
     let photo;
     try {
-      photo = await prepareUpload(state.file);
+      photo = await prepareUpload(state.file, cropper.getCrop());
     } catch {
       throw new Error(t('fileUnreadable'));
     }

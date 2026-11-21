@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { validateFile, matchRules, ruleReason, MAX_BYTES, MAX_INPUT_BYTES } from '../frontend/js/validation.js';
 import { targetSize, MAX_EDGE } from '../frontend/js/resize.js';
+import { defaultCrop, clampCrop, resizeCrop, cropToSource } from '../frontend/js/crop.js';
 import { requestJSON, fetchSymptoms, screenImage } from '../frontend/js/api.js';
 import { MESSAGES, getLang, setLang, t, applyTranslations } from '../frontend/js/i18n.js';
 const kb = JSON.parse(readFileSync(new URL('../data/disease_knowledge.json', import.meta.url)));
@@ -44,6 +45,30 @@ test('rule reasons name the selected symptoms', () => {
   const ids = ['itch', 'vision_loss', 'photophobia'];
   const [rule] = matchRules(redRules, ids);
   assert.equal(ruleReason(rule, ids, labels), 'Danger signs: Vision loss, Light pain');
+});
+test('the default crop is the centre square the server would take', () => {
+  assert.deepEqual(defaultCrop(4000, 3000), { x: 500, y: 0, size: 3000, width: 4000, height: 3000 });
+  assert.deepEqual(defaultCrop(300, 600), { x: 0, y: 150, size: 300, width: 300, height: 600 });
+});
+test('crops stay inside the photo and above the minimum size', () => {
+  const base = defaultCrop(4000, 3000);
+  assert.deepEqual(clampCrop({ ...base, x: -50, y: 9999 }), { ...base, x: 0, y: 0 });
+  assert.equal(clampCrop({ ...base, size: 10 }).size, 600); // 20% of the short side
+  assert.equal(clampCrop({ ...base, size: 99999 }).size, 3000);
+  // Small photos: never below the server's 64 px minimum, never above the short side.
+  assert.equal(clampCrop({ ...defaultCrop(100, 80), size: 1 }).size, 64);
+  assert.equal(clampCrop({ ...defaultCrop(70, 50), size: 1 }).size, 50);
+  const small = resizeCrop(base, 1000);
+  assert.deepEqual([small.x, small.y, small.size], [1500, 1000, 1000]); // same centre
+  const corner = resizeCrop({ ...small, x: 3000, y: 2000 }, 2000);
+  assert.deepEqual([corner.x, corner.y], [2000, 1000]); // pushed back inside
+});
+test('crops map onto the decoded bitmap, or are skipped when it does not match', () => {
+  const crop = { x: 1000, y: 500, size: 1200, width: 4000, height: 3000 };
+  assert.deepEqual(cropToSource(crop, 4000, 3000), { sx: 1000, sy: 500, side: 1200 });
+  assert.deepEqual(cropToSource(crop, 2000, 1500), { sx: 500, sy: 250, side: 600 });
+  assert.equal(cropToSource(crop, 3000, 4000), null); // rotated differently
+  assert.equal(cropToSource(null, 4000, 3000), null);
 });
 test('API retains symptom-only 503 results and handles non-JSON failures', async () => {
   const original = globalThis.fetch;
