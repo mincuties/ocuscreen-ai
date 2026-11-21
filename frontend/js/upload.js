@@ -1,3 +1,4 @@
+import { t } from './i18n.js';
 import { validateFile } from './validation.js';
 
 /** Own the native input and preview URL together; release URLs on replacement/reset. */
@@ -42,7 +43,7 @@ export function createUpload({ input, dropzone, preview, meta, onChange, onError
     if (!file) return;
     clear();
     onChange(null);
-    onError('Không đọc được ảnh. Hãy chọn ảnh khác.');
+    onError(t('fileUnreadable'));
   });
   for (const type of ['dragover', 'dragleave', 'drop']) {
     dropzone.addEventListener(type, event => {

@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { validateFile, hasUrgentSymptoms, MAX_BYTES } from '../frontend/js/validation.js';
-import { requestJSON } from '../frontend/js/api.js';
+import { requestJSON, fetchSymptoms, screenImage } from '../frontend/js/api.js';
+import { MESSAGES, getLang, setLang, t, applyTranslations } from '../frontend/js/i18n.js';
 const kb = JSON.parse(readFileSync(new URL('../data/disease_knowledge.json', import.meta.url)));
 
 test('upload validation rejects unsupported, empty and oversized images', () => {
@@ -23,11 +24,13 @@ test('pre-inference warnings match image-independent knowledge rules', () => {
 test('API retains symptom-only 503 results and handles non-JSON failures', async () => {
   const original = globalThis.fetch;
   try {
-    globalThis.fetch = async () => new Response(JSON.stringify({ risk: { level: 'Cao' } }), {status: 503});
-    assert.equal((await requestJSON('/api/screen')).data.risk.level, 'Cao');
+    globalThis.fetch = async () => new Response(JSON.stringify({ risk: { level: 'high' } }), {status: 503});
+    assert.equal((await requestJSON('/api/screen')).data.risk.level, 'high');
     globalThis.fetch = async () => new Response('<html>Bad gateway</html>', {status: 502});
+    await assert.rejects(requestJSON('/api/screen'), /Please try again/);
+    setLang('vi');
     await assert.rejects(requestJSON('/api/screen'), /Vui lòng thử lại/);
-  } finally { globalThis.fetch = original; }
+  } finally { globalThis.fetch = original; setLang('en'); }
 });
 
 test('Vietnamese symptom search ignores accents and preserves choices', async () => {
@@ -73,7 +76,7 @@ test('upload synchronizes native files, releases previews and preserves cancella
     busy=false;
     preview.dispatchEvent(new Event('error'));
     assert.equal(chosen,null);
-    assert.match(error,/Không đọc được ảnh/);
+    assert.match(error,/could not be read/);
     assert.deepEqual(revoked,['blob:first.png','blob:second.png']);
     upload.clear();
     assert.equal(preview.hidden,true);
@@ -81,4 +84,58 @@ test('upload synchronizes native files, releases previews and preserves cancella
     globalThis.window=original.window;globalThis.DataTransfer=original.transfer;
     URL.createObjectURL=original.create;URL.revokeObjectURL=original.revoke;
   }
+});
+
+test('English is the default and both languages define the same UI keys', () => {
+  assert.equal(getLang(), 'en');
+  assert.deepEqual(Object.keys(MESSAGES.vi).sort(), Object.keys(MESSAGES.en).sort());
+  for (const lang of ['en', 'vi']) {
+    for (const [key, text] of Object.entries(MESSAGES[lang])) assert.ok(text.trim(), `${lang}.${key}`);
+  }
+  const html = readFileSync(new URL('../frontend/index.html', import.meta.url), 'utf8');
+  const keys = [...html.matchAll(/data-i18n="(\w+)"/g)].map(m => m[1]);
+  for (const pairs of html.matchAll(/data-i18n-attr="([^"]+)"/g)) {
+    keys.push(...pairs[1].split(';').map(pair => pair.split(':')[1]));
+  }
+  assert.ok(keys.length > 20);
+  for (const key of keys) assert.ok(key in MESSAGES.en, key);
+});
+
+test('translations interpolate values and switch language', () => {
+  try {
+    assert.equal(t('selectedCount', { count: 3 }), '3 selected');
+    assert.equal(setLang('vi'), 'vi');
+    assert.equal(t('selectedCount', { count: 3 }), '3 đã chọn');
+    assert.equal(validateFile(null), 'Hãy chọn một ảnh mắt.');
+    assert.equal(setLang('fr'), 'en');
+    assert.equal(validateFile(null), 'Please choose an eye photo.');
+    assert.equal(t('missingKey'), 'missingKey');
+  } finally { setLang('en'); }
+});
+
+test('applyTranslations fills text and attributes', () => {
+  const text = { dataset: { i18n: 'submit' }, textContent: '' };
+  const attrs = {};
+  const input = { dataset: { i18nAttr: 'placeholder:searchPlaceholder;aria-label:searchLabel' },
+    setAttribute: (name, value) => { attrs[name] = value; } };
+  const root = { querySelectorAll: selector => (selector === '[data-i18n]' ? [text] : [input]) };
+  try {
+    setLang('vi');
+    applyTranslations(root);
+    assert.equal(text.textContent, 'Phân tích sàng lọc');
+    assert.deepEqual(attrs, { placeholder: 'Ví dụ: đỏ mắt, ngứa, chảy nước mắt', 'aria-label': 'Tìm triệu chứng' });
+  } finally { setLang('en'); }
+});
+
+test('API requests send the selected language', async () => {
+  const original = globalThis.fetch;
+  const urls = [];
+  try {
+    globalThis.fetch = async url => { urls.push(url); return new Response('{"symptoms": []}'); };
+    await fetchSymptoms();
+    setLang('vi');
+    await fetchSymptoms();
+    await screenImage(new Blob(['x']), ['itch']);
+    assert.deepEqual(urls, ['/api/symptoms?lang=en', '/api/symptoms?lang=vi', '/api/screen?lang=vi']);
+  } finally { globalThis.fetch = original; setLang('en'); }
 });

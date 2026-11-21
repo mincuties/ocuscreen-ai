@@ -3,6 +3,8 @@
 import json
 from pathlib import Path
 
+from backend.i18n import DEFAULT, localize, t
+
 KB = json.loads(
     (Path(__file__).resolve().parents[1] / "data/disease_knowledge.json").read_text(
         encoding="utf-8"
@@ -16,32 +18,47 @@ COMBINATIONS = [
 DISEASES = [(disease, frozenset(disease["symptoms"])) for disease in KB["diseases"]]
 
 
-def assess_risk(prediction, symptom_ids):
+def localized_symptoms(lang=DEFAULT):
+    return [{**s, "label": localize(s["label"], lang)} for s in KB["symptoms"]]
+
+
+def localized_combinations(lang=DEFAULT):
+    return [
+        {**rule, "reason": localize(rule["reason"], lang)}
+        for rule in KB["urgent_combinations"]
+    ]
+
+
+def assess_risk(prediction, symptom_ids, lang=DEFAULT):
     selected = set(symptom_ids)
     if selected - SYMPTOMS.keys():
-        raise ValueError("Có mã triệu chứng không hợp lệ.")
+        raise ValueError("Unknown symptom ID.")
+
+    def label(sid):
+        return localize(SYMPTOMS[sid]["label"], lang)
+
     sign = prediction["label"] if prediction["status"] == "valid" else None
     reasons = []
     high = selected & URGENT_SYMPTOMS
     for sid in sorted(high):
-        reasons.append(SYMPTOMS[sid]["label"])
+        reasons.append(label(sid))
     for rule, required in COMBINATIONS:
         if required <= selected and (
             not rule["image_signs"] or sign in rule["image_signs"]
         ):
             high.add(rule["id"])
-            reasons.append(rule["reason"])
+            reasons.append(localize(rule["reason"], lang))
     image_rule = KB["image_signs"].get(sign, {})
     level = (
-        "Cao"
+        "high"
         if high
-        else ("Vừa" if selected or (sign and sign != "Normal") else "Thấp")
+        else ("medium" if selected or (sign and sign != "Normal") else "low")
     )
     if not high and prediction["status"] != "valid" and not selected:
         level = None
     if image_rule.get("priority") == "high":
-        level = "Cao"
-        reasons.append(image_rule["description"])
+        level = "high"
+        reasons.append(localize(image_rule["description"], lang))
     candidates = []
     for disease, symptoms in DISEASES:
         matches = sorted(selected & symptoms)
@@ -50,32 +67,23 @@ def assess_risk(prediction, symptom_ids):
             continue
         candidates.append(
             {
-                "name": disease["name"],
+                "name": localize(disease["name"], lang),
                 "match_points": len(matches) + 2 * int(image_match),
-                "matched_symptoms": [SYMPTOMS[s]["label"] for s in matches],
+                "matched_symptoms": [label(s) for s in matches],
                 "matched_image_sign": sign if image_match else None,
-                "note": disease["note"],
+                "note": localize(disease["note"], lang),
             }
         )
     candidates.sort(key=lambda d: (-d["match_points"], d["name"]))
-    if high:
-        advice = "Đến cơ sở y tế hoặc chuyên khoa mắt ngay để được đánh giá. Không chờ chụp lại ảnh hay kết quả AI."
-    elif level == "Cao":
-        advice = "Cần được bác sĩ đánh giá sớm, ưu tiên trong ngày. Nếu đau nhiều hoặc giảm thị lực, đi khám ngay."
-    elif level == "Vừa":
-        advice = "Sắp xếp khám mắt nếu triệu chứng còn tiếp diễn, tái phát hoặc tăng lên. Nếu xuất hiện đau nhiều hay thay đổi thị lực, đi khám ngay."
-    elif level == "Thấp":
-        advice = "Chưa ghi nhận dấu hiệu ưu tiên từ thông tin đã nhập. Điều này không loại trừ bệnh mắt; khám nếu có khó chịu hoặc lo lắng."
-    else:
-        advice = "Chưa đủ thông tin để phân loại. Hãy chụp lại ảnh mắt và kiểm tra checklist triệu chứng."
+    advice = "urgent" if high else (level or "none")
     return {
         "level": level,
-        "label": level or "Chưa đánh giá",
+        "label": t(f"level_{level or 'none'}", lang),
         "urgent": bool(high),
         "reasons": reasons,
-        "recommendation": advice,
+        "recommendation": t(f"advice_{advice}", lang),
         "candidates": candidates[:3],
         "image_used": sign is not None,
         "knowledge_version": KB["version"],
-        "disclaimer": KB["disclaimer"],
+        "disclaimer": localize(KB["disclaimer"], lang),
     }

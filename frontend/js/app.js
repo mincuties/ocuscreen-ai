@@ -1,25 +1,38 @@
 import { fetchSymptoms, screenImage } from './api.js';
 import { byId as $, renderSymptoms, renderResult, filterSymptoms } from './components.js';
+import { applyTranslations, getLang, setLang, t } from './i18n.js';
 import { hasUrgentSymptoms } from './validation.js';
 
 import { createUpload } from './upload.js';
 
-const state = { file: null, loaded: false, busy: false, urgent: [], combinations: [] };
+const state = { file: null, loaded: false, busy: false, urgent: [], combinations: [], loadToken: 0 };
+// Remember the last status so a language switch can translate it; server errors stay as sent.
+let lastStatus = { key: 'loadingSymptoms', text: null, error: false };
 const selected = () => [...$('checks').querySelectorAll('input:checked')].map(input => input.value);
-function status(message, error = false) {
-  $('status').textContent = message;
-  $('status').dataset.error = String(error);
+const langButtons = () => [...document.querySelectorAll('.lang-switch [data-lang]')];
+function renderStatus() {
+  $('status').textContent = lastStatus.text ?? t(lastStatus.key);
+  $('status').dataset.error = String(lastStatus.error);
+}
+function status(key, error = false) {
+  lastStatus = { key, text: null, error };
+  renderStatus();
+}
+function statusText(text, error = false) {
+  lastStatus = { key: null, text, error };
+  renderStatus();
 }
 function updateControls() {
   $('submit').disabled = state.busy || !state.loaded || !state.file;
-  $('submit').textContent = state.busy ? 'Đang phân tích…' : 'Phân tích sàng lọc';
+  $('submit').textContent = t(state.busy ? 'submitBusy' : 'submit');
   $('image').disabled = state.busy;
   $('dropzone').classList.toggle('disabled', state.busy);
   $('symptomSearch').disabled = state.busy || !state.loaded;
   $('symptomField').disabled = state.busy || !state.loaded;
   $('screenForm').querySelector('[type=reset]').disabled = state.busy;
   $('screenForm').setAttribute('aria-busy', String(state.busy));
-  $('selectedCount').textContent = `${selected().length} đã chọn`;
+  $('selectedCount').textContent = t('selectedCount', { count: selected().length });
+  for (const button of langButtons()) button.disabled = state.busy;
   const active = !$('result').hidden ? 'stepResult' : state.file ? 'stepSymptoms' : 'stepImage';
   for (const id of ['stepImage', 'stepSymptoms', 'stepResult']) {
     if (id === active) $(id).setAttribute('aria-current', 'step');
@@ -27,14 +40,21 @@ function updateControls() {
   }
 }
 function clearResult() { $('result').hidden = true; }
+function applyLanguage() {
+  document.documentElement.lang = getLang();
+  applyTranslations(document);
+  for (const button of langButtons()) button.setAttribute('aria-pressed', String(button.dataset.lang === getLang()));
+  renderStatus();
+  updateControls();
+}
 const upload = createUpload({
   input: $('image'), dropzone: $('dropzone'), preview: $('preview'), meta: $('fileMeta'),
   isBusy: () => state.busy,
-  onError: message => status(message, true),
+  onError: message => statusText(message, true),
   onChange: file => {
     state.file = file;
     clearResult();
-    status(file ? 'Ảnh đã sẵn sàng. Kiểm tra triệu chứng rồi phân tích.' : 'Chọn ảnh mắt để bắt đầu.');
+    status(file ? 'imageReady' : 'chooseImage');
     updateControls();
   },
 });
@@ -44,22 +64,38 @@ function updateSearch() {
 }
 $('symptomSearch').addEventListener('input', updateSearch);
 async function init() {
+  const token = ++state.loadToken;
   $('retry').hidden = true;
-  status('Đang tải danh sách triệu chứng…');
+  status('loadingSymptoms');
   try {
     const { data } = await fetchSymptoms();
+    if (token !== state.loadToken) return; // A newer load (e.g. another language) won.
+    const keep = new Set(selected());
     state.urgent = data.urgent_symptoms;
     state.combinations = data.urgent_combinations || [];
     renderSymptoms(data.symptoms, $('checks'));
+    for (const input of $('checks').querySelectorAll('input')) input.checked = keep.has(input.value);
     updateSearch();
     state.loaded = true;
-    status(state.file ? 'Sẵn sàng phân tích.' : 'Chọn ảnh mắt để bắt đầu.');
+    status(state.file ? 'readyToAnalyze' : 'chooseImage');
   } catch (error) {
-    status(error.message, true);
+    if (token !== state.loadToken) return;
+    statusText(error.message, true);
     $('retry').hidden = false;
   }
   updateControls();
 }
+async function changeLanguage(lang) {
+  if (state.busy || lang === getLang()) return;
+  setLang(lang);
+  const hadResult = !$('result').hidden;
+  clearResult();
+  applyLanguage();
+  await init();
+  // Results come from the server in one language; ask for a new run instead of mixing languages.
+  if (hadResult && state.loaded && !lastStatus.error) status('languageChanged');
+}
+for (const button of langButtons()) button.addEventListener('click', () => changeLanguage(button.dataset.lang));
 $('retry').addEventListener('click', init);
 $('checks').addEventListener('change', () => {
   clearResult();
@@ -72,7 +108,7 @@ $('screenForm').addEventListener('reset', () => {
   state.file = null;
   $('fileMeta').textContent = '';
   $('urgentHint').hidden = true;
-  status(state.loaded ? 'Chọn ảnh mắt để bắt đầu.' : 'Hãy tải lại danh sách triệu chứng.');
+  status(state.loaded ? 'chooseImage' : 'reloadSymptoms');
   queueMicrotask(() => { updateSearch(); updateControls(); });
 });
 $('screenForm').addEventListener('submit', async event => {
@@ -82,17 +118,17 @@ $('screenForm').addEventListener('submit', async event => {
   state.busy = true;
   clearResult();
   updateControls();
-  status('Đang phân tích ảnh và triệu chứng…');
+  status('analyzing');
   try {
     const { data, ok } = await screenImage(state.file, ids);
     renderResult(data);
-    status(ok ? 'Đã phân tích.' : 'Chỉ có kết quả triệu chứng; model chưa sẵn sàng.');
+    status(ok ? 'analyzed' : 'symptomsOnly');
   } catch (error) {
-    status(error.message, true);
+    statusText(error.message, true);
   } finally {
     state.busy = false;
     updateControls();
   }
 });
-updateControls();
+applyLanguage();
 init();
