@@ -74,12 +74,18 @@ def test_evaluate_end_to_end_with_fake_model(tmp_path):
             out[~white, 1] = 1
             return out
 
-    probs, truth, skipped = evaluate.predict_all(Model(), evaluate.load_items(tmp_path))
-    report = evaluate.build_report(probs, truth, skipped)
+    items = evaluate.load_items(tmp_path)
+    probs, truth, skipped, flags = evaluate.predict_all(Model(), items)
+    report = evaluate.build_report(probs, truth, skipped, flags=flags)
     assert report["images"] == 2 and report["accuracy"] == 1.0
     assert len(report["skipped"]) == 1
     json.dumps(evaluate.no_nan(report), allow_nan=False)
-    assert "| Normal | 1 |" in evaluate.summary(report)
+    text = evaluate.summary(report)
+    assert "| Normal | 1 |" in text
+    # Both flat test images are blurry; one is dark, the other bright with glare.
+    quality = {r["flag"]: r["images"] for r in report["quality"]}
+    assert quality == {"blurry": 2, "dark": 1, "bright": 1, "glare": 1, "none": 0}
+    assert "| blurry | 2 | 1.00 |" in text and "| none | 0 | - |" in text
 
 
 def test_load_items_rejects_unknown_class(tmp_path):

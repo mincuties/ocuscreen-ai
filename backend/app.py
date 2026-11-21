@@ -84,6 +84,7 @@ def failed_prediction(status: str, message: str) -> dict:
         "message": message,
         "hint": None,
         "model_version": None,
+        "quality": None,
     }
 
 

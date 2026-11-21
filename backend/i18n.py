@@ -82,6 +82,23 @@ MESSAGES = {
         "en": "Image analyzed. The model score is not a probability of disease.",
         "vi": "Đã phân tích ảnh. Điểm model không phải xác suất mắc bệnh.",
     },
+    "quality_blurry": {
+        "en": "The photo looks blurry. Hold the phone steady and tap the eye to focus.",
+        "vi": "Ảnh có vẻ bị mờ. Giữ máy chắc tay và chạm vào mắt trên màn hình để lấy nét.",
+    },
+    "quality_dark": {
+        "en": "The photo looks too dark. Move to a brighter place, facing the light.",
+        "vi": "Ảnh có vẻ quá tối. Hãy ra chỗ sáng hơn, quay mặt về phía nguồn sáng.",
+    },
+    "quality_bright": {
+        "en": "The photo looks too bright. Avoid direct sunlight and turn off the flash.",
+        "vi": "Ảnh có vẻ quá sáng. Tránh nắng chiếu thẳng và tắt đèn flash.",
+    },
+    "quality_glare": {
+        "en": "There is strong glare on the photo. Turn off the flash and avoid lights "
+        "reflecting in the eye.",
+        "vi": "Ảnh bị lóa mạnh. Tắt đèn flash và tránh đèn phản chiếu vào mắt.",
+    },
     "level_red": {"en": "Red · go now", "vi": "Đỏ · đi khám ngay"},
     "level_yellow": {"en": "Yellow · see a doctor", "vi": "Vàng · cần đi khám"},
     "level_green": {"en": "Green · self-care and watch", "vi": "Xanh · tự theo dõi"},

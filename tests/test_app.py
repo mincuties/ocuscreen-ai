@@ -263,6 +263,49 @@ def test_preprocess_rejects_other_formats(fmt):
         ip.preprocess(b.getvalue())
 
 
+def textured(blur=0):
+    from PIL import ImageFilter
+
+    rng = np.random.default_rng(0)
+    img = Image.fromarray(rng.normal(128, 40, (480, 640, 3)).clip(0, 255).astype("uint8"))
+    b = io.BytesIO()
+    img.filter(ImageFilter.GaussianBlur(blur)).save(b, format="PNG")
+    return b.getvalue()
+
+
+@pytest.mark.parametrize(
+    "data,flags",
+    [
+        (textured(), []),
+        (textured(blur=6), ["blurry"]),
+        (photo("black"), ["blurry", "dark"]),
+        (photo("white"), ["blurry", "bright", "glare"]),
+    ],
+)
+def test_quality_flags(data, flags):
+    assert ip.measure_quality(ip.decode(data))["flags"] == flags
+
+
+def test_glare_spot_is_flagged_only_when_large():
+    rng = np.random.default_rng(1)
+    pixels = rng.normal(110, 30, (448, 448, 3)).clip(0, 240).astype("uint8")
+    small, large = pixels.copy(), pixels.copy()
+    small[200:210, 200:210] = 255  # a catchlight, about 0.05% of the crop
+    large[100:200, 100:200] = 255  # about 5% of the crop
+
+    def flags(a):
+        return ip.measure_quality(Image.fromarray(a))["flags"]
+    assert flags(small) == [] and flags(large) == ["glare"]
+
+
+def test_quality_flags_never_change_the_result(monkeypatch):
+    monkeypatch.setattr(ip, "load_artifacts", lambda: (scored_model(Redness=0.9), ip.read_labels()))
+    result = ip.predict_image(photo("black"), "vi")
+    assert result["status"] == "valid" and result["label"] == "Redness"
+    assert result["quality"]["flags"] == ["blurry", "dark"]
+    assert result["quality"]["advice"][1].startswith("Ảnh có vẻ quá tối")
+
+
 def test_predict_background(monkeypatch):
     class Model:
         def __call__(self, batch, training=False):
@@ -353,6 +396,7 @@ def test_invalid_preserves_warning(client, monkeypatch):
     )
     assert r.json()["risk"]["level"] == "red"
     assert r.json()["image"]["status"] == "invalid"
+    assert r.json()["image"]["quality"] is None
 
 
 def test_missing_model_preserves_warning(client, monkeypatch):

@@ -26,7 +26,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import numpy as np
 
 from backend import metrics
-from backend.image_predictor import EXPECTED, InvalidImage, file_sha256, preprocess
+from backend.image_predictor import (
+    EXPECTED,
+    QUALITY_FLAGS,
+    InvalidImage,
+    decode,
+    file_sha256,
+    measure_quality,
+    to_batch,
+)
 
 EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 
@@ -54,8 +62,11 @@ def load_items(source):
 
 
 def predict_all(model, items, batch_size=16):
-    """Class probabilities for each readable image; unreadable ones are reported."""
-    probs, truth, skipped = [], [], []
+    """Class probabilities and quality flags for each readable image.
+
+    Unreadable images are reported in ``skipped``.
+    """
+    probs, truth, skipped, flags = [], [], [], []
     batch, batch_truth = [], []
 
     def flush():
@@ -68,17 +79,35 @@ def predict_all(model, items, batch_size=16):
 
     for path, label in items:
         try:
-            batch.append(preprocess(Path(path).read_bytes()))
+            image = decode(Path(path).read_bytes())
+            batch.append(to_batch(image))
             batch_truth.append(label)
+            flags.append(measure_quality(image)["flags"])
         except (InvalidImage, OSError) as exc:
             skipped.append({"path": str(path), "reason": str(exc)})
         if len(batch) == batch_size:
             flush()
     flush()
-    return np.array(probs), np.array(truth, dtype=int), skipped
+    return np.array(probs), np.array(truth, dtype=int), skipped, flags
 
 
-def build_report(probs, truth, skipped, model_path=None):
+def quality_report(probs, truth, flags):
+    """Accuracy with and without each photo-quality flag, to calibrate the thresholds."""
+    correct = probs.argmax(1) == truth
+    rows = []
+    for flag in (*QUALITY_FLAGS, None):
+        chosen = np.array([(flag in f) if flag else not f for f in flags], dtype=bool)
+        rows.append(
+            {
+                "flag": flag or "none",
+                "images": int(chosen.sum()),
+                "accuracy": float(correct[chosen].mean()) if chosen.any() else float("nan"),
+            }
+        )
+    return rows
+
+
+def build_report(probs, truth, skipped, model_path=None, flags=None):
     ece, bins = metrics.expected_calibration_error(probs, truth)
     return {
         "model": str(model_path) if model_path else None,
@@ -91,6 +120,7 @@ def build_report(probs, truth, skipped, model_path=None):
         "ece": ece,
         "calibration_bins": bins,
         "threshold_sweep": metrics.threshold_sweep(probs, truth, [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]),
+        "quality": quality_report(probs, truth, flags) if flags is not None else [],
     }
 
 
@@ -127,6 +157,10 @@ def summary(report):
     lines += ["", "| Top-1 threshold | Images accepted | Accuracy of accepted |", "|---|---|---|"]
     for r in report["threshold_sweep"]:
         lines.append(f"| {r['threshold']:.1f} | {fmt(r['coverage'])} | {fmt(r['accuracy'])} |")
+    if report["quality"]:
+        lines += ["", "| Photo-quality flag | Images | Top-1 accuracy |", "|---|---|---|"]
+        for r in report["quality"]:
+            lines.append(f"| {r['flag']} | {r['images']} | {fmt(r['accuracy'])} |")
     return "\n".join(lines)
 
 
@@ -142,10 +176,10 @@ def main():
     model = tf.keras.models.load_model(args.model, compile=False)
     if tuple(model.output_shape) != (None, len(EXPECTED)):
         raise SystemExit(f"Model output must be (None, {len(EXPECTED)}).")
-    probs, truth, skipped = predict_all(model, load_items(args.test_set))
+    probs, truth, skipped, flags = predict_all(model, load_items(args.test_set))
     if not len(truth):
         raise SystemExit("No readable images.")
-    report = build_report(probs, truth, skipped, args.model)
+    report = build_report(probs, truth, skipped, args.model, flags)
     print(summary(report))
     if args.out:
         args.out.write_text(json.dumps(no_nan(report), indent=2), encoding="utf-8")
