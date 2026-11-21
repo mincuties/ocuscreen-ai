@@ -2,6 +2,7 @@ import { fetchSymptoms, screenImage } from './api.js';
 import { byId as $, renderSymptoms, renderResult, filterSymptoms } from './components.js';
 import { applyTranslations, getLang, setLang, t } from './i18n.js';
 import { hasUrgentSymptoms } from './validation.js';
+import { prepareUpload } from './resize.js';
 
 import { createUpload } from './upload.js';
 
@@ -120,7 +121,13 @@ $('screenForm').addEventListener('submit', async event => {
   updateControls();
   status('analyzing');
   try {
-    const { data, ok } = await screenImage(state.file, ids);
+    let photo;
+    try {
+      photo = await prepareUpload(state.file);
+    } catch {
+      throw new Error(t('fileUnreadable'));
+    }
+    const { data, ok } = await screenImage(photo, ids);
     renderResult(data);
     status(ok ? 'analyzed' : 'symptomsOnly');
   } catch (error) {

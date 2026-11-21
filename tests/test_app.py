@@ -52,6 +52,85 @@ def test_risk(label, status, symptoms, level):
     assert assess_risk(prediction(label, status), symptoms)["level"] == level
 
 
+def scored_model(**probs):
+    """Fake model returning the given class probabilities, the rest spread evenly."""
+    vector = np.zeros(12)
+    for name, value in probs.items():
+        vector[ip.EXPECTED.index(name.replace("_", " "))] = value
+    rest = [i for i in range(12) if vector[i] == 0]
+    vector[rest] = (1 - vector.sum()) / len(rest)
+
+    class Model:
+        def __call__(self, batch, training=False):
+            return vector[None, :]
+
+    return Model()
+
+
+@pytest.mark.parametrize(
+    "probs,hint",
+    [
+        ({"Cornea_Abnormal": 0.45}, "Cornea Abnormal"),
+        ({"Cornea_Abnormal": 0.25}, None),  # too weak
+        ({"Cornea_Abnormal": 0.40, "Redness": 0.35}, None),  # no clear lead
+        ({"Cornea_Abnormal": 0.40, "Back_Ground": 0.15}, None),  # looks like a non-eye photo
+        ({"Cornea_Abnormal": 0.70}, None),  # valid, not a hint
+    ],
+)
+def test_uncertain_hint(monkeypatch, probs, hint):
+    monkeypatch.setattr(ip, "load_artifacts", lambda: (scored_model(**probs), ip.read_labels()))
+    result = ip.predict_image(photo())
+    assert (result["hint"] or {}).get("label") == hint
+
+
+def test_high_priority_hint_raises_level_without_urgency():
+    pred = prediction("Cornea Abnormal", "uncertain")
+    pred["hint"] = {"label": "Cornea Abnormal", "confidence": 0.45}
+    risk = assess_risk(pred, [])
+    assert risk["level"] == "medium" and not risk["urgent"]
+    assert risk["image_used"] is False and risk["candidates"] == []
+    sign = assess_risk(prediction("Cornea Abnormal", "valid"), [])["reasons"][0]
+    assert any(sign in r for r in risk["reasons"])
+
+
+def hinted(label):
+    pred = prediction(label, "uncertain")
+    pred["hint"] = {"label": label, "confidence": 0.45}
+    return pred
+
+
+def test_hint_never_lowers_an_urgent_result():
+    risk = assess_risk(hinted("Cornea Abnormal"), ["vision_loss"])
+    assert risk["level"] == "high" and risk["urgent"]
+    assert assess_risk(hinted("Cornea Abnormal"), ["itch"])["level"] == "medium"
+
+
+def test_hint_that_completes_a_combination_raises_to_medium():
+    # Contact lenses + an uncertain lean towards Redness must not become "not assessed".
+    risk = assess_risk(hinted("Redness"), ["contacts"])
+    assert risk["level"] == "medium" and not risk["urgent"]
+    assert assess_risk(prediction("Redness", "uncertain"), ["contacts"])["level"] is None
+
+
+def test_medium_priority_hint_is_ignored():
+    pred = prediction("Redness", "uncertain")
+    pred["hint"] = {"label": "Redness", "confidence": 0.45}
+    assert assess_risk(pred, [])["level"] is None
+
+
+def test_contact_lenses_alone_are_context_not_a_symptom():
+    assert assess_risk(prediction("Normal", "valid"), ["contacts"])["level"] == "low"
+    assert assess_risk(prediction("Redness", "valid"), ["contacts"])["level"] == "high"
+
+
+def test_file_sha256(tmp_path):
+    f = tmp_path / "m.h5"
+    f.write_bytes(b"abc")
+    assert ip.file_sha256(f) == (
+        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    )
+
+
 def test_labels():
     labels = ip.read_labels()
     assert labels[10] == (10, "Pale Inner Eyelid")
@@ -65,6 +144,32 @@ def test_preprocess():
     assert np.all(ip.preprocess(photo("black")) == -1)
     with pytest.raises(ip.InvalidImage):
         ip.preprocess(b"not an image")
+
+
+def jpeg(width, height):
+    b = io.BytesIO()
+    Image.new("RGB", (width, height), "gray").save(b, format="JPEG", quality=70)
+    return b.getvalue()
+
+
+def test_preprocess_accepts_default_phone_photo():
+    # 4032x3024 is the default 12 MP photo of many phones (12,192,768 pixels).
+    assert ip.preprocess(jpeg(4032, 3024)).shape == (1, 224, 224, 3)
+
+
+def invalid_key(data):
+    with pytest.raises(ip.InvalidImage) as err:
+        ip.preprocess(data)
+    return err.value.key
+
+
+@pytest.mark.parametrize("size", [(1500, 1000), (1500, 1500)])
+def test_preprocess_too_many_pixels_says_so(monkeypatch, size):
+    # A lowered limit keeps the test light: 1.5 MP is above it (Pillow warning),
+    # 2.25 MP is above twice it (Pillow error). Both must give the size message.
+    monkeypatch.setattr(ip, "MAX_PIXELS", 1_000_000)
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 1_000_000)
+    assert invalid_key(jpeg(*size)) == "image_dimensions"
 
 
 @pytest.mark.parametrize("fmt", ["GIF", "BMP", "TIFF"])

@@ -52,7 +52,7 @@ Do not commit `.venv311`, user photos, datasets or secrets. The H5 file is about
 - `Normal` does not cancel symptoms. An invalid image with no symptoms returns `Not assessed`, not Low. Symptom warnings still appear when the model cannot load.
 - Stage 2 is not trained from the JSON. It reads the rules and ranks symptom patterns with 2 points for a matching image sign + 1 point per symptom; points are never turned into a disease percentage. The High/Medium/Low level is a rule-based examination priority, independent of the pattern ranking.
 - One worker, one model, one upload/inference at a time; other requests get 429. This is a resource limit for a small demo, not a complete DDoS defense.
-- Limits: 5 MB per image, 12 megapixels, JPEG/PNG/WebP only, no animated images. Paths are based on module location, not the working directory.
+- Limits: 5 MB and 25 megapixels per uploaded image (the page downscales larger photos first), JPEG/PNG/WebP only, no animated images. Paths are based on module location, not the working directory.
 - `tensorflow-cpu` avoids CUDA dependencies; the process can still run out of memory on a very small host. Docker uses TF 2.15.1 / Keras 2.15.0, the Keras version the H5 file was saved with.
 - The app creates no records and does not write photos or checklists to a database. The multipart parser may use a temporary file and then close it; the hosting platform may keep its own access logs. Only the frontend folder is public through the static route.
 
@@ -129,7 +129,7 @@ Docker Spaces require the app to listen on `0.0.0.0` and the port declared in th
 curl -X POST 'http://localhost:7860/api/screen?lang=vi' -F 'image=@eye.jpg' -F 'symptoms=["itch","gritty"]'
 ```
 
-The response contains `image` (class_id, label, confidence, status, message) and `risk` (level, label, urgent, reasons, recommendation, candidates, image_used, knowledge_version, disclaimer). `risk.level` is a language-independent code, `high`, `medium`, `low` or `null` (not assessed); `risk.label` is its translated text. An unreadable image or Back Ground returns 200 with status invalid, plus symptom warnings if any. A model failure returns 503 with the symptom-based risk. Bad input returns 422; an oversized request 413; busy 429. `confidence` is only the model's output score.
+The response contains `image` (class_id, label, confidence, status, message, hint, model_version) and `risk` (level, label, urgent, reasons, recommendation, candidates, image_used, knowledge_version, disclaimer). `risk.level` is a language-independent code, `high`, `medium`, `low` or `null` (not assessed); `risk.label` is its translated text. An unreadable image or Back Ground returns 200 with status invalid, plus symptom warnings if any. A model failure returns 503 with the symptom-based risk. Bad input returns 422; an oversized request 413; busy 429. `confidence` is only the model's output score. `hint` is set only for an uncertain image whose top class clearly leads (uncalibrated guards in `image_predictor.py`); when that class has high priority in the knowledge base the level is raised to at least `medium` with a reason, never to `high`. `model_version` is the SHA256 of the loaded H5 file.
 
 ## 7. Testing and troubleshooting
 
@@ -149,7 +149,8 @@ npm test
 - **OOM / exit 137:** keep `--workers 1`, do not use reload in the cloud, reduce image size or add host RAM. The CPU package does not guarantee no OOM.
 - **API 404:** keep the frontend mount last in app.py and upload all folders.
 - **CORS:** the frontend calls relative paths on the same domain; no wildcard CORS is needed.
-- **Phone photo rejected:** export as JPEG/PNG/WebP below 12 megapixels; HEIC is not supported yet.
+- **Phone photo rejected:** the web page downscales photos to a 1600 px long edge before upload; direct API calls must send JPEG/PNG/WebP up to 5 MB and 25 megapixels. HEIC is not supported yet.
+- **Smaller model file:** `python scripts/strip_optimizer.py model/keras_model.h5 model/keras_model_slim.h5` re-saves the model without its optimizer state (about 198 MB → 82 MB, identical outputs, checked by the script). RAM use while serving stays about the same.
 
 ## 8. Knowledge scope
 

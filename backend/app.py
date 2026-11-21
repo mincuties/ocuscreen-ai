@@ -83,6 +83,8 @@ def failed_prediction(status: str, message: str) -> dict:
         "class_id": None,
         "confidence": None,
         "message": message,
+        "hint": None,
+        "model_version": None,
     }
 
 
