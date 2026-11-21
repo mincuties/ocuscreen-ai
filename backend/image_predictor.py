@@ -13,6 +13,8 @@ import warnings
 import numpy as np
 from PIL import Image, ImageOps, UnidentifiedImageError
 
+from backend.i18n import DEFAULT, t
+
 ROOT = Path(__file__).resolve().parents[1]
 MODEL_PATH = Path(os.getenv("MODEL_PATH", str(ROOT / "model/keras_model.h5")))
 LABELS_PATH = ROOT / "model/labels.txt"
@@ -42,7 +44,11 @@ class ModelUnavailable(RuntimeError):
 
 
 class InvalidImage(ValueError):
-    pass
+    """Rejected upload; ``key`` selects the localized message in backend.i18n."""
+
+    def __init__(self, key):
+        self.key = key
+        super().__init__(t(key))
 
 
 def read_labels(path=LABELS_PATH):
@@ -52,10 +58,10 @@ def read_labels(path=LABELS_PATH):
             continue
         parts = line.strip().split(" ", 1)
         if len(parts) != 2 or not parts[0].isdigit() or not parts[1].strip():
-            raise ValueError("labels.txt phải có dạng: 10 Pale Inner Eyelid")
+            raise ValueError("labels.txt lines must look like: 10 Pale Inner Eyelid")
         labels.append((int(parts[0]), parts[1].strip()))
     if labels != list(enumerate(EXPECTED)):
-        raise ValueError("labels.txt phải đúng thứ tự và tên của 12 class đã công bố.")
+        raise ValueError("labels.txt must list the 12 published classes in order.")
     return labels
 
 
@@ -67,25 +73,25 @@ def load_artifacts():
         try:
             labels = read_labels()
             if not MODEL_PATH.is_file():
-                raise FileNotFoundError("Thiếu model/keras_model.h5")
+                raise FileNotFoundError("Missing model/keras_model.h5")
             import tensorflow as tf
 
             model = tf.keras.models.load_model(MODEL_PATH, compile=False)
             if tuple(model.input_shape) != (None, 224, 224, 3):
-                raise ValueError("Model phải có input (None, 224, 224, 3).")
+                raise ValueError("Model input must be (None, 224, 224, 3).")
             if tuple(model.output_shape) != (None, 12):
-                raise ValueError("Model phải có output (None, 12).")
+                raise ValueError("Model output must be (None, 12).")
             _model, _labels = model, labels
             return _model, _labels
         except Exception as exc:
             raise ModelUnavailable(
-                "Không nạp được model. Kiểm tra file H5, labels và phiên bản Keras trong log máy chủ."
+                "Could not load the model. Check the H5 file, labels and Keras version in the server log."
             ) from exc
 
 
 def preprocess(image_bytes):
     if not image_bytes or len(image_bytes) > MAX_BYTES:
-        raise InvalidImage("Ảnh phải có dung lượng từ 1 byte đến 5 MB.")
+        raise InvalidImage("image_size")
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("error", Image.DecompressionBombWarning)
@@ -95,16 +101,14 @@ def preprocess(image_bytes):
                 BytesIO(image_bytes), formats=("JPEG", "PNG", "WEBP")
             ) as original:
                 if original.format not in {"JPEG", "PNG", "WEBP"}:
-                    raise InvalidImage("Chỉ nhận ảnh JPEG, PNG hoặc WebP.")
+                    raise InvalidImage("image_format")
                 if getattr(original, "n_frames", 1) != 1:
-                    raise InvalidImage("Vui lòng dùng ảnh tĩnh.")
+                    raise InvalidImage("image_animated")
                 if (
                     min(original.size) < 64
                     or original.width * original.height > 12_000_000
                 ):
-                    raise InvalidImage(
-                        "Ảnh cần ít nhất 64×64 và không quá 12 megapixel."
-                    )
+                    raise InvalidImage("image_dimensions")
                 image = ImageOps.exif_transpose(original).convert("RGB")
                 image = ImageOps.fit(image, (224, 224), Image.Resampling.LANCZOS)
                 return ((np.asarray(image, dtype=np.float32) / 127.5) - 1.0)[None, ...]
@@ -117,41 +121,36 @@ def preprocess(image_bytes):
         Image.DecompressionBombError,
         Image.DecompressionBombWarning,
     ) as exc:
-        raise InvalidImage("Không đọc được ảnh. Hãy chọn ảnh mắt rõ nét khác.") from exc
+        raise InvalidImage("image_unreadable") from exc
 
 
-def predict_image(image_bytes):
+def predict_image(image_bytes, lang=DEFAULT):
     batch = preprocess(image_bytes)
     with _lock:
         model, labels = load_artifacts()
         try:
             scores = np.asarray(model(batch, training=False), dtype=np.float32)
         except Exception as exc:
-            raise ModelUnavailable("Không thể chạy model ảnh.") from exc
+            raise ModelUnavailable("Could not run the image model.") from exc
     if scores.shape != (1, 12) or not np.isfinite(scores).all():
-        raise ModelUnavailable("Đầu ra model không hợp lệ.")
+        raise ModelUnavailable("Invalid model output.")
     # This artifact contract is multiclass probabilities, not multilabel sigmoid or logits.
     if (
         np.any(scores < 0)
         or np.any(scores > 1)
         or not np.isclose(scores.sum(), 1, atol=0.01)
     ):
-        raise ModelUnavailable("Cần model đa lớp có đầu ra softmax gồm 12 giá trị.")
+        raise ModelUnavailable("Expected a multiclass model with a 12-value softmax output.")
     index = int(np.argmax(scores[0]))
     class_id, label = labels[index]
     confidence = float(scores[0, index])
     status = (
         "invalid" if class_id == 11 else ("uncertain" if confidence < 0.60 else "valid")
     )
-    messages = {
-        "invalid": "Ảnh được nhận diện là Back Ground. Hãy chụp lại cận cảnh mắt, đủ sáng, mắt nằm giữa ảnh.",
-        "uncertain": "Model chưa đủ chắc chắn. Hãy chụp lại ảnh; cảnh báo triệu chứng bên dưới vẫn có giá trị.",
-        "valid": "Đã phân tích ảnh. Điểm model không phải xác suất mắc bệnh.",
-    }
     return {
         "class_id": class_id,
         "label": label,
         "confidence": confidence,
         "status": status,
-        "message": messages[status],
+        "message": t(f"image_{status}", lang),
     }

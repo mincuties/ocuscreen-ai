@@ -1,3 +1,5 @@
+import { t } from './i18n.js';
+
 /** Small DOM components. API text is always inserted as text, never HTML. */
 export const byId = id => document.getElementById(id);
 export function textNode(tag, text, parent, className) {
@@ -24,11 +26,11 @@ export function renderSymptoms(symptoms, container) {
 }
 
 export function renderResult({ image, risk }) {
-  byId('level').textContent = 'Mức ưu tiên: ' + risk.label;
-  byId('level').className = 'badge ' + ({ Cao: 'high', Vừa: 'medium', Thấp: 'low' }[risk.level] || '');
+  byId('level').textContent = t('priority', { label: risk.label });
+  byId('level').className = 'badge ' + (['high', 'medium', 'low'].includes(risk.level) ? risk.level : '');
   byId('imageResult').textContent = image.label && Number.isFinite(image.confidence)
-    ? `Nhãn ảnh: ${image.label} · Điểm model: ${(image.confidence * 100).toFixed(1)}%`
-    : 'Chưa có nhãn ảnh hợp lệ';
+    ? t('imageLabel', { label: image.label, score: (image.confidence * 100).toFixed(1) })
+    : t('noImageLabel');
   byId('imageMessage').textContent = image.message;
   byId('advice').textContent = risk.recommendation;
   byId('reasons').replaceChildren();
@@ -36,14 +38,14 @@ export function renderResult({ image, risk }) {
   const candidates = byId('candidates');
   candidates.replaceChildren();
   if (risk.candidates.length) {
-    textNode('h3', 'Nhóm biểu hiện có điểm tương đồng', candidates);
-    textNode('p', 'Danh sách tham khảo; thứ tự theo điểm khớp, không phải xác suất bệnh.', candidates, 'hint');
+    textNode('h3', t('candidatesTitle'), candidates);
+    textNode('p', t('candidatesHint'), candidates, 'hint');
     for (const candidate of risk.candidates) {
       const article = document.createElement('article');
       textNode('strong', candidate.name, article);
       textNode('p', candidate.note, article);
       const matches = [candidate.matched_image_sign, ...candidate.matched_symptoms].filter(Boolean);
-      textNode('small', 'Thông tin khớp: ' + matches.join(', '), article);
+      textNode('small', t('matchedInfo', { items: matches.join(', ') }), article);
       candidates.append(article);
     }
   }

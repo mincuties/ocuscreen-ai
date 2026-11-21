@@ -1,17 +1,17 @@
 <!DOCTYPE html>
-<html lang="vi">
+<html lang="en">
  <head>
   <meta charset="utf-8"/>
   <meta content="width=device-width,initial-scale=1" name="viewport"/>
-  <title>
-   OcuScreen AI · Sàng lọc mắt
+  <title data-i18n="pageTitle">
+   OcuScreen AI · Eye screening
   </title>
   <link href="/css/styles.css" rel="stylesheet"/>
  </head>
  <body>
-  <noscript><p class="notice">Vui lòng bật JavaScript để tải ảnh và sử dụng sàng lọc.</p></noscript>
-  <a class="skip-link" href="#screenForm">
-   Chuyển đến biểu mẫu
+  <noscript><p class="notice">Please enable JavaScript to upload a photo and use the screening. · Vui lòng bật JavaScript để tải ảnh và sử dụng sàng lọc.</p></noscript>
+  <a class="skip-link" data-i18n="skipLink" href="#screenForm">
+   Skip to form
   </a>
   <header>
    <div class="brand">
@@ -20,34 +20,40 @@
      AI
     </span>
    </div>
-   <span class="tag">
-    BẢN THỬ NGHIỆM
-   </span>
+   <div class="header-tools">
+    <div aria-label="Language" class="lang-switch" data-i18n-attr="aria-label:langGroup" role="group">
+     <button aria-pressed="true" data-lang="en" lang="en" type="button">English</button>
+     <button aria-pressed="false" data-lang="vi" lang="vi" type="button">Tiếng Việt</button>
+    </div>
+    <span class="tag" data-i18n="tag">
+     PROTOTYPE
+    </span>
+   </div>
   </header>
   <main>
-   <div class="eyebrow">
-    SÀNG LỌC SƠ BỘ · HAI TẦNG
+   <div class="eyebrow" data-i18n="eyebrow">
+    PRELIMINARY SCREENING · TWO STAGES
    </div>
    <h1>
-    Hiểu dấu hiệu mắt.
+    <span data-i18n="headline1">Understand eye signs.</span>
     <br/>
-    Chủ động bước tiếp theo.
+    <span data-i18n="headline2">Take the next step with confidence.</span>
    </h1>
-   <p class="intro">
-    Kết hợp ảnh mắt và triệu chứng bạn cung cấp để gợi ý mức độ ưu tiên đi khám. Kết quả mang tính tham khảo, chưa được thẩm định lâm sàng.
+   <p class="intro" data-i18n="intro">
+    Combines an eye photo with the symptoms you report to suggest how urgently to see a doctor. Results are for reference only and have not been clinically validated.
    </p>
-   <div class="notice">
-    Nếu đau mắt dữ dội, giảm thị lực đột ngột hoặc hóa chất vào mắt, hãy đi khám ngay. Đừng chờ kết quả AI.
+   <div class="notice" data-i18n="emergencyNotice">
+    If you have severe eye pain, sudden loss of vision or a chemical in the eye, seek care immediately. Do not wait for the AI result.
    </div>
-   <ol aria-label="Tiến trình sàng lọc" class="stepper">
-    <li aria-current="step" id="stepImage">
-     01 · Chọn ảnh
+   <ol aria-label="Screening progress" class="stepper" data-i18n-attr="aria-label:stepperLabel">
+    <li aria-current="step" data-i18n="stepImage" id="stepImage">
+     01 · Photo
     </li>
-    <li id="stepSymptoms">
-     02 · Triệu chứng
+    <li data-i18n="stepSymptoms" id="stepSymptoms">
+     02 · Symptoms
     </li>
-    <li id="stepResult">
-     03 · Kết quả
+    <li data-i18n="stepResult" id="stepResult">
+     03 · Result
     </li>
    </ol>
    <form id="screenForm">
@@ -57,7 +63,7 @@
        <span class="step">
         1
        </span>
-       Chọn ảnh mắt
+       <span data-i18n="photoTitle">Choose an eye photo</span>
       </h2>
       <label class="upload" for="image" id="dropzone">
        <svg aria-hidden="true" viewBox="0 0 64 64">
@@ -66,22 +72,22 @@
         <circle cx="32" cy="32" r="9">
         </circle>
        </svg>
-       <strong>
-        Chọn hoặc kéo thả ảnh mắt
+       <strong data-i18n="dropTitle">
+        Choose or drag and drop an eye photo
        </strong>
-       <span class="hint">
-        JPEG, PNG, WebP · tối đa 5 MB
+       <span class="hint" data-i18n="dropHint">
+        JPEG, PNG, WebP · up to 5 MB
        </span>
       </label>
       <input accept="image/jpeg,image/png,image/webp" aria-describedby="photoGuide fileMeta" id="image" required="" type="file"/>
       <p class="hint file-meta" id="fileMeta">
       </p>
-      <img alt="Ảnh mắt đã chọn" hidden="" id="preview"/>
-      <p class="hint" id="photoGuide">
-       Chụp đủ sáng, giữ mắt ở giữa ảnh. Không dùng bộ lọc màu. Ảnh cần ít nhất 64×64 và không quá 12 megapixel.
+      <img alt="Selected eye photo" data-i18n-attr="alt:previewAlt" hidden="" id="preview"/>
+      <p class="hint" data-i18n="photoGuide" id="photoGuide">
+       Use good lighting and keep the eye centered. Do not use color filters. The image must be at least 64×64 and no larger than 12 megapixels.
       </p>
-      <p class="hint">
-       Ảnh được gửi đến máy chủ để xử lý. Ứng dụng không lưu ảnh hoặc checklist thành hồ sơ; không nhập thông tin định danh.
+      <p class="hint" data-i18n="privacy">
+       The photo is sent to the server for processing. The app does not save photos or checklists as records; do not enter identifying information.
       </p>
      </section>
      <section class="card">
@@ -90,56 +96,56 @@
         <span class="step">
          2
         </span>
-        Triệu chứng của bạn
+        <span data-i18n="symptomsTitle">Your symptoms</span>
        </h2>
        <span class="count" id="selectedCount">
-        0 đã chọn
+        0 selected
        </span>
       </div>
-      <p class="hint">
-       Chọn tất cả mục phù hợp. Nếu không có triệu chứng, để trống.
+      <p class="hint" data-i18n="symptomsHint">
+       Select everything that applies. Leave it empty if you have no symptoms.
       </p>
       <div class="notice urgent" hidden id="urgentHint" role="alert">
-  <strong>Có dấu hiệu cần khám ngay.</strong>
+  <strong data-i18n="urgentTitle">Some signs need immediate care.</strong>
   <span id="urgentReasons"></span>
-  Đừng chờ phân tích ảnh để tìm trợ giúp y tế.
+  <span data-i18n="urgentTail">Do not wait for the image analysis to seek medical help.</span>
 </div>
-      <label class="search-label" for="symptomSearch">Tìm triệu chứng</label>
-      <input aria-describedby="searchHint" id="symptomSearch" type="search" placeholder="Ví dụ: đỏ mắt, ngứa, chảy nước mắt" autocomplete="off" aria-controls="checks"/>
-      <p class="hint" id="searchHint">Tìm có dấu hoặc không dấu. Các mục đã chọn vẫn được giữ lại.</p>
+      <label class="search-label" data-i18n="searchLabel" for="symptomSearch">Search symptoms</label>
+      <input aria-describedby="searchHint" data-i18n-attr="placeholder:searchPlaceholder" id="symptomSearch" type="search" placeholder="For example: red eye, itchy, watery" autocomplete="off" aria-controls="checks"/>
+      <p class="hint" data-i18n="searchHint" id="searchHint">Search with or without accents. Selected items stay selected.</p>
       <fieldset id="symptomField">
-       <legend class="hint">
-        Triệu chứng hiện tại
+       <legend class="hint" data-i18n="symptomLegend">
+        Current symptoms
        </legend>
        <div class="checks" id="checks">
        </div>
       </fieldset>
-      <p class="hint" id="emptySearch" hidden role="status">Không tìm thấy triệu chứng. Thử từ khóa khác.</p>
+      <p class="hint" data-i18n="emptySearch" id="emptySearch" hidden role="status">No symptoms found. Try another keyword.</p>
       <div class="notice urgent" hidden id="urgentHint" role="alert">
-  <strong>Có dấu hiệu cần khám ngay.</strong>
+  <strong data-i18n="urgentTitle">Some signs need immediate care.</strong>
   <span id="urgentReasons"></span>
-  Đừng chờ phân tích ảnh để tìm trợ giúp y tế.
+  <span data-i18n="urgentTail">Do not wait for the image analysis to seek medical help.</span>
 </div>
       <div class="actions">
        <button disabled="" id="submit" type="submit">
-        Phân tích sàng lọc
+        Run screening
        </button>
-       <button class="secondary" type="reset">
-        Làm lại
+       <button class="secondary" data-i18n="reset" type="reset">
+        Start over
        </button>
       </div>
-      <button class="secondary" hidden="" id="retry" type="button">
-       Tải lại triệu chứng
+      <button class="secondary" data-i18n="retry" hidden="" id="retry" type="button">
+       Reload symptoms
       </button>
       <p aria-live="polite" id="status" role="status">
-       Đang tải danh sách triệu chứng…
+       Loading the symptom list…
       </p>
      </section>
     </div>
    </form>
    <section aria-live="polite" class="card result" hidden="" id="result" tabindex="-1">
-    <h2>
-     Kết quả sàng lọc sơ bộ
+    <h2 data-i18n="resultTitle">
+     Preliminary screening result
     </h2>
     <span class="badge" id="level">
     </span>
@@ -156,13 +162,13 @@
     <p class="hint" id="disclaimer">
     </p>
     <p class="hint" id="printMeta"></p>
-<button class="secondary" id="printResult" type="button">In / lưu thành PDF</button>
+<button class="secondary" data-i18n="printResult" id="printResult" type="button">Print / save as PDF</button>
    </section>
    <footer>
-    OcuScreen AI · Ảnh → Dấu hiệu → Triệu chứng → Gợi ý đi khám
+    <span data-i18n="footer">OcuScreen AI · Photo → Signs → Symptoms → Care suggestion</span>
     <br/>
-    <a href="https://www.nhs.uk/symptoms/red-eye/" rel="noopener noreferrer" target="_blank">
-     Tham khảo dấu hiệu cần khám mắt
+    <a data-i18n="footerLink" href="https://www.nhs.uk/symptoms/red-eye/" rel="noopener noreferrer" target="_blank">
+     Signs that need an eye examination (NHS)
     </a>
    </footer>
   </main>
