@@ -12,6 +12,7 @@ KB = json.loads(
 )
 SYMPTOMS = {s["id"]: s for s in KB["symptoms"]}
 URGENT_SYMPTOMS = frozenset(KB["urgent_symptoms"])
+CONTEXT_SYMPTOMS = frozenset(s["id"] for s in KB["symptoms"] if s.get("context"))
 COMBINATIONS = [
     (rule, frozenset(rule["all_symptoms"])) for rule in KB["urgent_combinations"]
 ]
@@ -49,13 +50,33 @@ def assess_risk(prediction, symptom_ids, lang=DEFAULT):
             high.add(rule["id"])
             reasons.append(localize(rule["reason"], lang))
     image_rule = KB["image_signs"].get(sign, {})
+    # Context items (e.g. wearing contact lenses) count in combinations, not alone.
+    symptoms_only = selected - CONTEXT_SYMPTOMS
     level = (
         "high"
         if high
-        else ("medium" if selected or (sign and sign != "Normal") else "low")
+        else ("medium" if symptoms_only or (sign and sign != "Normal") else "low")
     )
-    if not high and prediction["status"] != "valid" and not selected:
+    if not high and prediction["status"] != "valid" and not symptoms_only:
         level = None
+    # An uncertain image that leans towards a sign is not dropped silently when the
+    # sign is high priority, or would complete a combination rule with the selected
+    # symptoms (e.g. contact lenses + redness). It nudges towards an exam: never to
+    # urgent, never into the rules or candidates.
+    hint = prediction.get("hint") or {}
+    hint_label = hint.get("label")
+    hint_rule = KB["image_signs"].get(hint_label, {})
+    completes_rule = any(
+        required <= selected and hint_label in rule["image_signs"]
+        for rule, required in COMBINATIONS
+    )
+    if not high and hint_rule and (hint_rule.get("priority") == "high" or completes_rule):
+        level = "medium" if level in (None, "low") else level
+        reasons.append(
+            t("reason_uncertain_hint", lang).format(
+                sign=localize(hint_rule["description"], lang)
+            )
+        )
     if image_rule.get("priority") == "high":
         level = "high"
         reasons.append(localize(image_rule["description"], lang))

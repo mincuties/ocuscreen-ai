@@ -59,8 +59,8 @@ MESSAGES = {
         "vi": "Vui lòng dùng ảnh tĩnh.",
     },
     "image_dimensions": {
-        "en": "The image must be at least 64×64 and no larger than 12 megapixels.",
-        "vi": "Ảnh cần ít nhất 64×64 và không quá 12 megapixel.",
+        "en": "The image must be at least 64×64 and no larger than 25 megapixels.",
+        "vi": "Ảnh cần ít nhất 64×64 và không quá 25 megapixel.",
     },
     "image_unreadable": {
         "en": "The image could not be read. Please choose another clear eye photo.",
@@ -112,9 +112,16 @@ MESSAGES = {
     },
     "advice_none": {
         "en": "Not enough information to classify. Retake the eye photo and review "
-        "the symptom checklist.",
+        "the symptom checklist. If you are worried or the problem persists, see an "
+        "eye doctor.",
         "vi": "Chưa đủ thông tin để phân loại. Hãy chụp lại ảnh mắt và kiểm tra "
-        "checklist triệu chứng.",
+        "checklist triệu chứng. Nếu lo lắng hoặc tình trạng kéo dài, hãy đi khám mắt.",
+    },
+    "reason_uncertain_hint": {
+        "en": "The photo may show: {sign}. The image result is uncertain, so have it "
+        "checked by a doctor.",
+        "vi": "Ảnh có thể có: {sign}. Kết quả ảnh chưa chắc chắn, nên để bác sĩ "
+        "kiểm tra.",
     },
 }
 

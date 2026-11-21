@@ -1,16 +1,26 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { validateFile, hasUrgentSymptoms, MAX_BYTES } from '../frontend/js/validation.js';
+import { validateFile, hasUrgentSymptoms, MAX_BYTES, MAX_INPUT_BYTES } from '../frontend/js/validation.js';
+import { targetSize, MAX_EDGE } from '../frontend/js/resize.js';
 import { requestJSON, fetchSymptoms, screenImage } from '../frontend/js/api.js';
 import { MESSAGES, getLang, setLang, t, applyTranslations } from '../frontend/js/i18n.js';
 const kb = JSON.parse(readFileSync(new URL('../data/disease_knowledge.json', import.meta.url)));
 
 test('upload validation rejects unsupported, empty and oversized images', () => {
   assert.equal(validateFile({ size: MAX_BYTES, type: 'image/png' }), null);
-  for (const file of [null, {size: 0}, {size: MAX_BYTES + 1}, {size: 20, type: 'text/html'}]) {
+  // Photos above the 5 MB upload limit are accepted here and downscaled before upload.
+  assert.equal(validateFile({ size: MAX_BYTES + 1, type: 'image/jpeg' }), null);
+  for (const file of [null, {size: 0}, {size: MAX_INPUT_BYTES + 1, type: 'image/jpeg'}, {size: 20, type: 'text/html'}]) {
     assert.ok(validateFile(file));
   }
+});
+test('large photos are downscaled to the upload size, small ones are left alone', () => {
+  assert.equal(targetSize(1200, 900, 400_000), null);
+  assert.deepEqual(targetSize(4032, 3024, 3_000_000), { width: MAX_EDGE, height: 1200 });
+  assert.deepEqual(targetSize(3024, 4032, 3_000_000), { width: 1200, height: MAX_EDGE });
+  // Small in pixels but too heavy: re-encode at the same size.
+  assert.deepEqual(targetSize(1500, 1000, MAX_BYTES + 1), { width: 1500, height: 1000 });
 });
 test('pre-inference warnings match image-independent knowledge rules', () => {
   const warn = ids => hasUrgentSymptoms(ids, kb.urgent_symptoms, kb.urgent_combinations);
