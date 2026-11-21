@@ -254,6 +254,17 @@ button.secondary {
   font-weight: 700;
 }
 
+.attention {
+  margin: 12px 0;
+}
+
+.attention img {
+  display: block;
+  width: 224px;
+  max-width: 100%;
+  border-radius: 9px;
+}
+
 .quality {
   background: #f3f7f7;
   border-radius: 9px;

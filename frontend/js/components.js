@@ -34,13 +34,25 @@ export function otherPossibilities(image) {
 }
 const percent = score => (score * 100).toFixed(1);
 
-export function renderResult({ image, risk }) {
+/** Only accept the JPEG data URL the API builds, never another URL scheme. */
+export function attentionSource(image) {
+  const src = image?.attention?.image;
+  return typeof src === 'string' && src.startsWith('data:image/jpeg;base64,') ? src : null;
+}
+
+export function renderResult({ image, risk }, { explain = false } = {}) {
   byId('level').textContent = t('priority', { label: risk.label });
   byId('level').className = 'badge ' + (['red', 'yellow', 'green'].includes(risk.level) ? risk.level : '');
   // An uncertain image has no label worth showing; its message asks for a retake.
   byId('imageResult').textContent = image.status === 'valid' && Number.isFinite(image.confidence)
     ? t('imageLabel', { label: image.label, score: percent(image.confidence) })
     : t('noImageLabel');
+  const src = attentionSource(image);
+  byId('attention').hidden = !explain;
+  byId('attentionImage').hidden = !src;
+  if (src) byId('attentionImage').src = src;
+  else byId('attentionImage').removeAttribute('src');
+  byId('attentionNote').textContent = src ? image.attention.note : t('attentionMissing');
   const others = otherPossibilities(image);
   byId('otherLabels').hidden = !others.length;
   byId('otherLabels').textContent = others.length ? t('otherLabels', {

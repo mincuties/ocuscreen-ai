@@ -139,6 +139,10 @@
         </select>
        </label>
       </div>
+      <label class="choice">
+       <input id="explain" type="checkbox"/>
+       <span data-i18n="explainLabel">Also show where the model looked in the photo</span>
+      </label>
       <label class="choice confirm">
        <input id="confirmed" required type="checkbox"/>
        <span data-i18n="confirmLabel">I have read the whole list and ticked every symptom I have.</span>
@@ -169,6 +173,10 @@
     <p id="imageResult">
     </p>
     <p class="hint" hidden id="otherLabels"></p>
+    <figure class="attention" hidden id="attention">
+     <img alt="" data-i18n-attr="alt:attentionAlt" id="attentionImage"/>
+     <figcaption class="hint" id="attentionNote"></figcaption>
+    </figure>
     <p id="imageMessage">
     </p>
     <div class="quality" id="quality" hidden>

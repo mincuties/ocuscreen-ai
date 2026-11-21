@@ -38,7 +38,7 @@ function updateControls() {
   $('dropzone').classList.toggle('disabled', state.busy);
   $('symptomSearch').disabled = state.busy || !state.loaded;
   $('symptomField').disabled = state.busy || !state.loaded;
-  for (const id of ['ageGroup', 'duration', 'confirmed']) $(id).disabled = state.busy || !state.loaded;
+  for (const id of ['ageGroup', 'duration', 'confirmed', 'explain']) $(id).disabled = state.busy || !state.loaded;
   $('screenForm').querySelector('[type=reset]').disabled = state.busy;
   $('screenForm').setAttribute('aria-busy', String(state.busy));
   $('selectedCount').textContent = t('selectedCount', { count: selected().length });
@@ -142,8 +142,9 @@ $('screenForm').addEventListener('submit', async event => {
     } catch {
       throw new Error(t('fileUnreadable'));
     }
-    const { data, ok } = await screenImage(photo, ids, { ...triage(), confirmed: $('confirmed').checked });
-    renderResult(data);
+    const explain = $('explain').checked;
+    const { data, ok } = await screenImage(photo, ids, { ...triage(), confirmed: $('confirmed').checked, explain });
+    renderResult(data, { explain });
     status(ok ? 'analyzed' : 'symptomsOnly');
   } catch (error) {
     statusText(error.message, true);

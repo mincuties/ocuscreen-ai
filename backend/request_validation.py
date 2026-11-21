@@ -55,15 +55,21 @@ def parse_symptoms(raw: str, lang: str = DEFAULT) -> list[str]:
     return list(dict.fromkeys(ids))
 
 
+def parse_flag(form, key: str, lang: str = DEFAULT) -> bool:
+    """An optional "true"/"false" field, false when missing or empty."""
+    value = form.get(key) or "false"
+    if len(form.getlist(key)) > 1 or value not in ("true", "false"):
+        raise HTTPException(422, t("triage_field_invalid", lang))
+    return value == "true"
+
+
 def parse_triage(form, lang: str = DEFAULT) -> dict:
     """Optional answers that refine triage; a missing field means "not given"."""
     values = {key: form.get(key) or None for key in ("age_group", "duration")}
-    confirmed = form.get("confirmed") or "false"
     if (
-        any(len(form.getlist(key)) > 1 for key in ("age_group", "duration", "confirmed"))
+        any(len(form.getlist(key)) > 1 for key in ("age_group", "duration"))
         or values["age_group"] not in (None, *AGE_GROUPS)
         or values["duration"] not in (None, *DURATIONS)
-        or confirmed not in ("true", "false")
     ):
         raise HTTPException(422, t("triage_field_invalid", lang))
-    return {**values, "confirmed": confirmed == "true"}
+    return {**values, "confirmed": parse_flag(form, "confirmed", lang)}

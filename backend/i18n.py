@@ -82,6 +82,14 @@ MESSAGES = {
         "en": "Image analyzed. The model score is not a probability of disease.",
         "vi": "Đã phân tích ảnh. Điểm model không phải xác suất mắc bệnh.",
     },
+    "attention_note": {
+        "en": "Coloured areas show where the model looked when it chose this label "
+        "(red = most, compared within this photo only). It is not the location of a "
+        "lesion and is not a diagnosis.",
+        "vi": "Vùng tô màu cho thấy nơi model chú ý khi chọn nhãn này (đỏ là chú ý "
+        "nhiều nhất, chỉ so sánh trong ảnh này). Đây không phải vị trí tổn thương và "
+        "không phải chẩn đoán.",
+    },
     "quality_blurry": {
         "en": "The photo looks blurry. Hold the phone steady and tap the eye to focus.",
         "vi": "Ảnh có vẻ bị mờ. Giữ máy chắc tay và chạm vào mắt trên màn hình để lấy nét.",
@@ -196,8 +204,8 @@ MESSAGES = {
         "vi": "Không dùng được ảnh nên kết quả này chỉ dựa trên câu trả lời của bạn.",
     },
     "triage_field_invalid": {
-        "en": "Invalid age group, duration or confirmation value.",
-        "vi": "Nhóm tuổi, thời gian kéo dài hoặc giá trị xác nhận không hợp lệ.",
+        "en": "Invalid age group, duration or true/false value.",
+        "vi": "Nhóm tuổi, thời gian kéo dài hoặc giá trị true/false không hợp lệ.",
     },
     "reason_uncertain_hint": {
         "en": "The photo may show: {sign}. The image result is uncertain, so have it "
