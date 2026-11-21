@@ -58,7 +58,7 @@ Do not commit `.venv311`, user photos, datasets or secrets. The H5 file is about
 
 ## 3. Run locally with Docker (Windows Docker Desktop or WSL)
 
-Put the H5 file in place first, then open a terminal in the folder that contains the Dockerfile:
+Put the H5 file in place first, then open a terminal in the folder that contains the Dockerfile. The build stops with an error if `model/keras_model.h5` is missing, and the image reports its health through `/api/health`:
 
 ```bash
 docker build -t ocuscreen-ai .
@@ -108,10 +108,10 @@ Docker Spaces require the app to listen on `0.0.0.0` and the port declared in th
 
 ## 5. Render option
 
-1. Create a GitHub repo and upload the unpacked structure together with the H5. A private repo works if Render is granted read access.
+1. Render builds from a Git repository. The current H5 (about 198 MB) is above GitHub's 100 MB file limit and is ignored by `.gitignore`, so it cannot be pushed with the code; the Docker build fails without it. Use a host that can store the file (for example Hugging Face Spaces, section 4) or a model file below 100 MB.
 2. In the Render Dashboard choose **New → Web Service** and connect the repo.
 3. Choose the **Docker** runtime, Dockerfile path `./Dockerfile`, with the root at the folder that contains it.
-4. Pick a suitable instance. Free has limited resources; TensorFlow may not fit in RAM. On OOM, add RAM or move to a lighter runtime/model; do not add workers.
+4. Pick a suitable instance. The server was measured at about 657 MB of RAM with the current model, above the 512 MB of Render Free, so Free is expected to run out of memory. On OOM, add RAM or move to a lighter runtime/model; do not add workers.
 5. Set `PORT=7860` if needed. The Dockerfile also accepts the PORT value the platform provides. Set the Health Check Path to `/api/health`.
 6. Deploy, check the logs and health status, then copy the public URL Render provides.
 7. Render Free may sleep after 15 minutes without requests and needs to start up again on the next visit. Do not use Free to promise an always-available service. Source: https://render.com/docs/free .
@@ -156,3 +156,7 @@ npm test
 The references in the JSON include NHS pages on red eye, jaundice, bulging eyes and anaemia. These sources support the general descriptions of signs; they do not validate the app's weights or performance. Expert review of the rules, independent test data, calibration and false-negative assessment are needed before any use beyond a demo. An external eye photo cannot detect glaucoma, retinal disease or the cause of cloudiness in the eye. Do not infer a specific disease from the Normal/Cornea Abnormal label alone.
 
 When adding or editing knowledge-base text, provide both `en` and `vi` versions; the test suite checks that every text pair is complete.
+
+## 9. License
+
+The code is released under the MIT License; see `LICENSE`. The license covers this repository's code, not the model weights or third-party datasets.
