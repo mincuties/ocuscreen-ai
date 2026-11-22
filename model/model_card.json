@@ -1,0 +1,158 @@
+{
+  "format": 1,
+  "model_file": "ocuscreen.onnx",
+  "sha256": "1f33d827ba7fdda3dae42d3364e30dcbe27ac2cdaf396e0f89305b2645144983",
+  "architecture": "dinov2_vits14_reg (frozen) + linear head",
+  "input": {
+    "name": "image",
+    "size": 224,
+    "layout": "NCHW",
+    "resize": "center_crop",
+    "mean": [
+      0.485,
+      0.456,
+      0.406
+    ],
+    "std": [
+      0.229,
+      0.224,
+      0.225
+    ]
+  },
+  "outputs": {
+    "logits": "logits",
+    "patch_logits": "patch_logits",
+    "grid": 16
+  },
+  "labels": [
+    {
+      "name": "Redness",
+      "index": 0,
+      "published": false,
+      "triage": false,
+      "platt": [
+        0.7886558784737286,
+        -0.5060061975241474
+      ],
+      "threshold": 0.4463394086846236,
+      "hint_threshold": 0.3744573220172237
+    },
+    {
+      "name": "Blood Patch",
+      "index": 1,
+      "published": false,
+      "triage": false,
+      "platt": [
+        1.088211126261195,
+        -2.2262966200985828
+      ],
+      "threshold": 0.06259559779013725,
+      "hint_threshold": null
+    },
+    {
+      "name": "Swelling",
+      "index": 2,
+      "published": true,
+      "triage": false,
+      "platt": [
+        0.8656996308913087,
+        -0.5235005496853997
+      ],
+      "threshold": 0.1292325844580751,
+      "hint_threshold": 0.07456888417711066
+    },
+    {
+      "name": "Discharge",
+      "index": 3,
+      "published": true,
+      "triage": false,
+      "platt": [
+        0.5497111054492344,
+        -0.9556369629249963
+      ],
+      "threshold": 0.0679742230854759,
+      "hint_threshold": 0.0463296253928895
+    },
+    {
+      "name": "Yellow Eye",
+      "index": 4,
+      "published": false,
+      "triage": false,
+      "platt": [
+        0.6738580328907755,
+        -1.7552228467349527
+      ],
+      "threshold": 0.01997951404694317,
+      "hint_threshold": 0.01356006736016188
+    },
+    {
+      "name": "Bulging Eye",
+      "index": 5,
+      "published": false,
+      "triage": false,
+      "platt": [
+        0.7579347685530392,
+        -2.00576911683071
+      ],
+      "threshold": 0.027949982398339963,
+      "hint_threshold": 0.008435687331107722
+    },
+    {
+      "name": "Pale Inner Eyelid",
+      "index": 6,
+      "published": false,
+      "triage": false,
+      "platt": [
+        0.6435223750465271,
+        -1.6106849677040247
+      ],
+      "threshold": 0.010332468992717352,
+      "hint_threshold": 0.008714816439052416
+    },
+    {
+      "name": "Cataract",
+      "index": 7,
+      "published": false,
+      "triage": false,
+      "platt": [
+        0.8653710179911082,
+        -2.0152599694888464
+      ],
+      "threshold": 0.17961782068083784,
+      "hint_threshold": 0.0635865056297151
+    },
+    {
+      "name": "Normal",
+      "index": 8,
+      "published": false,
+      "triage": false,
+      "platt": [
+        0.9289838063953894,
+        0.04224867034565434
+      ],
+      "threshold": 0.6309403915180095,
+      "hint_threshold": null
+    },
+    {
+      "name": "eye_gate",
+      "index": 9,
+      "published": false,
+      "triage": false,
+      "platt": [
+        1.0,
+        0.0
+      ],
+      "threshold": 0.5262520048907452,
+      "hint_threshold": null
+    }
+  ],
+  "training": {
+    "labels_csv_sha256": "e5f65d584023153cbe8a70679cff136d0d0720301147d40fa8bc5a70be879ef0",
+    "weights_file": "dinov2_vits14_reg4_pretrain.pth",
+    "weights_sha256": "f433177089a681826f849f194ece3bb48f4d63fb38d32fc837e3dc7a4e5641fb",
+    "torch": "2.15.0+cpu",
+    "git_commit": "d326ac2209fdf8a61b852dd28e5b48caf5fd7349",
+    "date": "2026-11-22",
+    "onnx_max_abs_diff": 5.0067901611328125e-05
+  }
+}
