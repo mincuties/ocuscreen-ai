@@ -218,7 +218,6 @@
   ],
   "image_signs": {
     "Normal": {
-      "class_id": 0,
       "description": {
         "en": "No prominent signs visible in the image",
         "vi": "Không thấy dấu hiệu nổi bật trong ảnh"
@@ -226,7 +225,6 @@
       "priority": "low"
     },
     "Redness": {
-      "class_id": 1,
       "description": {
         "en": "Eye redness",
         "vi": "Đỏ mắt"
@@ -234,7 +232,6 @@
       "priority": "medium"
     },
     "Blood Patch": {
-      "class_id": 2,
       "description": {
         "en": "Red / blood patch on the eye",
         "vi": "Mảng đỏ / máu trên mắt"
@@ -242,7 +239,6 @@
       "priority": "medium"
     },
     "Swelling": {
-      "class_id": 3,
       "description": {
         "en": "Swelling around the eye",
         "vi": "Sưng quanh mắt"
@@ -250,7 +246,6 @@
       "priority": "medium"
     },
     "Discharge": {
-      "class_id": 4,
       "description": {
         "en": "Discharge / fluid",
         "vi": "Ghèn / dịch"
@@ -258,7 +253,6 @@
       "priority": "medium"
     },
     "Watery": {
-      "class_id": 5,
       "description": {
         "en": "Watery eye",
         "vi": "Chảy nước mắt"
@@ -266,7 +260,6 @@
       "priority": "medium"
     },
     "Cornea Abnormal": {
-      "class_id": 6,
       "description": {
         "en": "Corneal-area abnormality that needs a direct examination",
         "vi": "Bất thường vùng giác mạc cần được kiểm tra trực tiếp"
@@ -274,7 +267,6 @@
       "priority": "high"
     },
     "Eyelid Abnormal": {
-      "class_id": 7,
       "description": {
         "en": "Eyelid abnormality",
         "vi": "Bất thường mí mắt"
@@ -282,7 +274,6 @@
       "priority": "medium"
     },
     "Yellow Eye": {
-      "class_id": 8,
       "description": {
         "en": "Whites of the eye look yellow; the cause needs assessment",
         "vi": "Lòng trắng mắt có vẻ vàng, cần đánh giá nguyên nhân"
@@ -290,7 +281,6 @@
       "priority": "high"
     },
     "Bulging Eye": {
-      "class_id": 9,
       "description": {
         "en": "Eye looks bulging; needs assessment by a doctor",
         "vi": "Mắt có vẻ lồi, cần được bác sĩ đánh giá"
@@ -298,7 +288,6 @@
       "priority": "high"
     },
     "Pale Inner Eyelid": {
-      "class_id": 10,
       "description": {
         "en": "Inner eyelid looks pale; a photo cannot confirm anaemia",
         "vi": "Mặt trong mí mắt có vẻ nhợt, ảnh không đủ xác định thiếu máu"
@@ -306,7 +295,6 @@
       "priority": "medium"
     },
     "Cataract": {
-      "class_id": 12,
       "description": {
         "en": "Cloudy lens (possible cataract)",
         "vi": "Thủy tinh thể đục (có thể là đục thủy tinh thể)"

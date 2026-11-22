@@ -10,3 +10,8 @@ tests
 docs
 .env
 .env.*
+# Only the card and the ONNX file belong in the image; leftovers such as an old
+# keras_model.h5 or preprocess_golden.npz stay out of the build context.
+model/*
+!model/model_card.json
+!model/ocuscreen.onnx
