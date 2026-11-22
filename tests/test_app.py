@@ -15,7 +15,6 @@ def prediction(label="Normal", status="valid"):
     return {
         "label": label,
         "status": status,
-        "class_id": None,
         "confidence": 0.9,
         "message": "Test",
     }
@@ -377,15 +376,11 @@ def test_quality_flags_never_change_the_result(fake_model):
     assert result["quality"]["advice"][1].startswith("Ảnh có vẻ quá tối")
 
 
-def test_top3_is_ordered_and_does_not_affect_triage(fake_model):
-    fake_model({"Redness": 0.62, "Discharge": 0.2, "Swelling": 0.1, "Yellow Eye": 0.9})
+def test_unpublished_labels_are_never_shown(fake_model):
+    fake_model({"Redness": 0.62, "Yellow Eye": 0.9})
     result = ip.predict_image(photo())
-    # Unpublished labels (Yellow Eye) are never shown.
-    assert [t["label"] for t in result["top3"]] == ["Redness", "Discharge", "Swelling"]
-    assert result["top3"][1]["confidence"] == pytest.approx(0.2, abs=1e-4)
-    with_top3 = assess_risk(result, [], age_group="adult")
-    without = assess_risk({**result, "top3": None}, [], age_group="adult")
-    assert with_top3 == without
+    assert [f["label"] for f in result["findings"]] == ["Redness"]
+    assert "Yellow Eye" in result["unassessed"]
 
 
 def test_several_signs_are_found_and_all_reach_the_triage(fake_model):
@@ -431,7 +426,7 @@ def test_predict_not_an_eye(fake_model):
     fake_model({"eye_gate": 0.05, "Redness": 0.99})
     result = ip.predict_image(photo())
     assert result["status"] == "invalid" and result["label"] is None
-    assert result["findings"] == [] and result["top3"] is None
+    assert result["findings"] == []
     assert assess_risk(result, [], confirmed=True)["image_used"] is False
 
 
@@ -528,7 +523,6 @@ def test_invalid_preserves_warning(client, monkeypatch):
     assert r.json()["risk"]["level"] == "red"
     assert r.json()["image"]["status"] == "invalid"
     assert r.json()["image"]["quality"] is None
-    assert r.json()["image"]["top3"] is None
 
 
 def test_missing_model_preserves_warning(client, monkeypatch):

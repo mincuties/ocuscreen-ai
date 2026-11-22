@@ -84,13 +84,11 @@ def failed_prediction(status: str, message: str) -> dict:
     return {
         "status": status,
         "label": None,
-        "class_id": None,
         "confidence": None,
         "message": message,
         "hint": None,
         "model_version": None,
         "quality": None,
-        "top3": None,
         "findings": [],
         "unassessed": [],
         "unassessed_note": None,

@@ -330,10 +330,6 @@ def interpret(card, probs):
         if borderline and (len(borderline) == 1 or borderline[0]["probability"] - borderline[1]["probability"] >= HINT_MARGIN):
             top = borderline[0]
             hint = {"label": top["label"], "confidence": top["probability"], "triage": top["triage"]}
-    ranked = sorted(
-        (l for l in labels if l["name"] in shown), key=lambda l: -probs[l["index"]]
-    )
-    top3 = [{"label": l["name"], "confidence": float(probs[l["index"]])} for l in ranked[:3]]
     return {
         "status": status,
         "label": label,
@@ -341,7 +337,6 @@ def interpret(card, probs):
         "findings": findings if status != "invalid" else [],
         "unassessed": unassessed,
         "hint": hint,
-        "top3": top3 if status != "invalid" else None,
     }
 
 
@@ -375,7 +370,6 @@ def predict_image(image_bytes, lang=DEFAULT, explain=False):
         signs = ", ".join(localize(KB["image_signs"][s]["description"], lang) for s in result["unassessed"])
         note = t("image_unassessed", lang).format(signs=signs)
     return {
-        "class_id": None,
         **result,
         "message": message,
         "unassessed_note": note,
