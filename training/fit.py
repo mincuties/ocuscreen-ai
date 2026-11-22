@@ -170,6 +170,11 @@ def main():
     parser.add_argument("--repeats", type=int, default=5)
     parser.add_argument("--folds", type=int, default=5)
     parser.add_argument("--cv-views", type=int, default=8, help="views per image used inside CV")
+    parser.add_argument(
+        "--demo",
+        action="store_true",
+        help="show every trained label whatever the checks say (never for triage); the card is marked as a demo",
+    )
     args = parser.parse_args()
 
     rows = read_rows(args.data)
@@ -322,9 +327,13 @@ def main():
             rates.append((P0 >= np.array([thresholds[j] for j in js])).any(1)[is_normal].mean())
         return float(np.mean(rates))
 
+    if args.demo:
+        # Demo: every label is shown, none may raise the triage level; checks stay in the report.
+        for rep in label_reports:
+            rep["published"], rep["triage"] = True, False
     sign_pub = [j for j, c in enumerate(columns) if c != NORMAL and label_reports[j]["published"]]
     any_rate = normal_any_rate(sign_pub)
-    while any_rate is not None and any_rate > MAX_NORMAL_ANY_SIGN:
+    while not args.demo and any_rate is not None and any_rate > MAX_NORMAL_ANY_SIGN:
         worst = min(sign_pub, key=lambda j: label_reports[j]["oof_at_threshold"]["specificity"])
         label_reports[worst]["checks"]["normal_any_sign"] = False
         label_reports[worst]["published"] = label_reports[worst]["triage"] = False
@@ -460,6 +469,7 @@ def main():
         "gate": {**gate_report, "eye_pass_test": gate_test, "eye_pass_test_zoom": gate_zoom},
         "source_probe": {"accuracy": probe_acc, "majority_baseline": majority},
         "normal_any_sign_rate_oof": any_rate,
+        "demo": args.demo,
         "card_labels": card_labels,
         "criteria": {
             "sensitivity_target": SENSITIVITY_TARGET,
@@ -494,6 +504,14 @@ def fmt(x):
     return "-" if x is None or (isinstance(x, float) and math.isnan(x)) else f"{x:.2f}"
 
 
+def published_cell(r, failed, demo):
+    if demo and failed:
+        return "demo only (fails: " + ", ".join(failed) + ")"
+    if r["published"]:
+        return "yes, triage" if r["triage"] else "yes, display only"
+    return "no (" + ", ".join(failed) + ")"
+
+
 def summary(report):
     lines = [
         f"Train+val images: {report['fit_images']}, test images: {report['test_images']}, "
@@ -514,7 +532,7 @@ def summary(report):
             f"| {r['label']} | {r['positives']} | {r['groups']} | {srcs} | {fmt(r['auroc_oof'])} | "
             f"{fmt(r['ap_oof'])} | {fmt(r['threshold'])} | {fmt(o['sensitivity'])} | "
             f"{fmt(o['specificity'])} | {fmt(min(loso)) if loso else '-'} | "
-            f"{('yes, triage' if r['triage'] else 'yes, display only') if r['published'] else 'no (' + ', '.join(failed) + ')'} |"
+            f"{published_cell(r, failed, report.get('demo'))} |"
         )
     lines += [
         "",

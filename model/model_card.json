@@ -24,11 +24,12 @@
     "patch_logits": "patch_logits",
     "grid": 16
   },
+  "demo": true,
   "labels": [
     {
       "name": "Redness",
       "index": 0,
-      "published": false,
+      "published": true,
       "triage": false,
       "platt": [
         0.7886558784737286,
@@ -40,7 +41,7 @@
     {
       "name": "Blood Patch",
       "index": 1,
-      "published": false,
+      "published": true,
       "triage": false,
       "platt": [
         1.088211126261195,
@@ -76,7 +77,7 @@
     {
       "name": "Yellow Eye",
       "index": 4,
-      "published": false,
+      "published": true,
       "triage": false,
       "platt": [
         0.6738580328907755,
@@ -88,7 +89,7 @@
     {
       "name": "Bulging Eye",
       "index": 5,
-      "published": false,
+      "published": true,
       "triage": false,
       "platt": [
         0.7579347685530392,
@@ -100,7 +101,7 @@
     {
       "name": "Pale Inner Eyelid",
       "index": 6,
-      "published": false,
+      "published": true,
       "triage": false,
       "platt": [
         0.6435223750465271,
@@ -112,7 +113,7 @@
     {
       "name": "Cataract",
       "index": 7,
-      "published": false,
+      "published": true,
       "triage": false,
       "platt": [
         0.8653710179911082,
@@ -124,7 +125,7 @@
     {
       "name": "Normal",
       "index": 8,
-      "published": false,
+      "published": true,
       "triage": false,
       "platt": [
         0.9289838063953894,

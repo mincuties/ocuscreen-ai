@@ -778,3 +778,21 @@ def test_card_rejects_triage_on_hidden_label(fake_model):
     fake_model(card_edit=bad)
     with pytest.raises(ValueError):
         ip.read_card()
+
+
+def test_demo_flag_is_passed_through_and_validated(fake_model):
+    fake_model({"Redness": 0.8})
+    assert ip.predict_image(photo())["demo"] is False
+
+    def demo(card):
+        card["demo"] = True
+
+    fake_model({"Redness": 0.8}, card_edit=demo)
+    assert ip.predict_image(photo())["demo"] is True
+
+    def bad(card):
+        card["demo"] = "yes"
+
+    fake_model(card_edit=bad)
+    with pytest.raises(ValueError):
+        ip.read_card()

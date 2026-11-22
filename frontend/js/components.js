@@ -53,6 +53,7 @@ export function renderResult({ image, risk }, { explain = false } = {}) {
   else byId('attentionImage').removeAttribute('src');
   byId('attentionNote').textContent = src ? image.attention.note : t('attentionMissing');
   const others = otherFindings(image);
+  byId('demoNote').hidden = image.demo !== true;
   byId('otherLabels').hidden = !others.length;
   byId('otherLabels').textContent = others.length ? t('otherLabels', {
     items: others.map(item => item.label).join(', '),

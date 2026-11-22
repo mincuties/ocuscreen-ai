@@ -94,6 +94,7 @@ def failed_prediction(status: str, message: str) -> dict:
         "findings": [],
         "unassessed": [],
         "unassessed_note": None,
+        "demo": False,
         "attention": None,
     }
 

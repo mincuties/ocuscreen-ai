@@ -138,6 +138,7 @@ def main():
         "architecture": f"{provenance['hub_model']} (frozen) + linear head",
         "input": INPUT_SPEC,
         "outputs": {"logits": "logits", "patch_logits": "patch_logits", "grid": GRID},
+        "demo": bool(report.get("demo")),
         "labels": report["card_labels"],
         "training": {
             "labels_csv_sha256": features_info["labels_csv_sha256"],

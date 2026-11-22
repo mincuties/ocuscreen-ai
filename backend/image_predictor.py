@@ -95,6 +95,7 @@ def check_card(card):
         not all(isinstance(spec.get(k), list) and len(spec[k]) == 3 and all(map(_number, spec[k])) for k in ("mean", "std")),
         any(s <= 0 for s in spec.get("std") or [0]),
         not isinstance(card.get("outputs", {}).get("grid"), int),
+        not isinstance(card.get("demo", False), bool),
     ]
     if any(problems):
         raise ValueError("model_card.json: invalid header or input section")
@@ -380,5 +381,6 @@ def predict_image(image_bytes, lang=DEFAULT, explain=False):
         "unassessed_note": note,
         "attention": attention_map,
         "model_version": model_version,
+        "demo": card.get("demo", False),
         "quality": quality,
     }
