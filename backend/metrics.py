@@ -1,6 +1,7 @@
-"""Evaluation metrics for the single-label image classifier, numpy only.
+"""Evaluation metrics for the multi-label image model, numpy only.
 
-Used by scripts/evaluate.py. Kept free of TensorFlow so it can be unit tested.
+Used by scripts/evaluate.py and training/fit.py. Kept free of model libraries so it can
+be unit tested.
 """
 
 import math
@@ -39,65 +40,42 @@ def auroc(scores, positives):
     return float((ranks[positives].sum() - n_pos * (n_pos + 1) / 2) / (n_pos * n_neg))
 
 
-def confusion_matrix(truth, predicted, n_classes):
-    matrix = np.zeros((n_classes, n_classes), dtype=int)
-    for t, p in zip(truth, predicted):
-        matrix[t, p] += 1
-    return matrix
+def average_precision(scores, positives):
+    """Area under the precision-recall curve (mean precision at each positive); nan if none."""
+    positives = np.asarray(positives, dtype=bool)
+    if positives.sum() == 0:
+        return math.nan
+    order = np.argsort(-np.asarray(scores, dtype=float), kind="mergesort")
+    hits = positives[order]
+    precision = np.cumsum(hits) / np.arange(1, len(hits) + 1)
+    return float(precision[hits].mean())
 
 
-def per_class(probs, truth, names):
-    """Sensitivity, specificity and PPV of the top-1 decision, plus one-vs-rest AUROC."""
+def binary_rates(probs, positives, threshold):
+    """Sensitivity, specificity (with 95% Wilson intervals) and PPV at one threshold."""
+    called = np.asarray(probs, dtype=float) >= threshold
+    actual = np.asarray(positives, dtype=bool)
+    tp, fn = int((called & actual).sum()), int((~called & actual).sum())
+    tn, fp = int((~called & ~actual).sum()), int((called & ~actual).sum())
+    return {
+        "n_pos": tp + fn,
+        "n_neg": tn + fp,
+        "sensitivity": tp / (tp + fn) if tp + fn else math.nan,
+        "sensitivity_ci": wilson_interval(tp, tp + fn),
+        "specificity": tn / (tn + fp) if tn + fp else math.nan,
+        "specificity_ci": wilson_interval(tn, tn + fp),
+        "ppv": tp / (tp + fp) if tp + fp else math.nan,
+    }
+
+
+def binary_ece(probs, positives, bins=10):
+    """Expected calibration error of one label's probabilities over equal-width bins."""
     probs = np.asarray(probs, dtype=float)
-    truth = np.asarray(truth, dtype=int)
-    predicted = probs.argmax(1)
-    rows = []
-    for k, name in enumerate(names):
-        actual, called = truth == k, predicted == k
-        tp, fn = int((actual & called).sum()), int((actual & ~called).sum())
-        fp, tn = int((~actual & called).sum()), int((~actual & ~called).sum())
-        rows.append(
-            {
-                "class": name,
-                "n": int(actual.sum()),
-                "sensitivity": tp / (tp + fn) if tp + fn else math.nan,
-                "sensitivity_ci": wilson_interval(tp, tp + fn),
-                "specificity": tn / (tn + fp) if tn + fp else math.nan,
-                "specificity_ci": wilson_interval(tn, tn + fp),
-                "ppv": tp / (tp + fp) if tp + fp else math.nan,
-                "auroc": auroc(probs[:, k], actual),
-            }
-        )
-    return rows
-
-
-def expected_calibration_error(probs, truth, bins=10):
-    """ECE of the top-1 confidence over equal-width bins, plus the bins themselves."""
-    probs = np.asarray(probs, dtype=float)
-    truth = np.asarray(truth, dtype=int)
-    confidence = probs.max(1)
-    correct = probs.argmax(1) == truth
+    actual = np.asarray(positives, dtype=float)
     edges = np.linspace(0, 1, bins + 1)
-    table, ece = [], 0.0
+    ece = 0.0
     for lo, hi in zip(edges[:-1], edges[1:]):
-        inside = (confidence > lo) & (confidence <= hi) if lo > 0 else confidence <= hi
-        if not inside.any():
-            continue
-        acc, conf = float(correct[inside].mean()), float(confidence[inside].mean())
-        ece += inside.mean() * abs(acc - conf)
-        table.append({"range": (float(lo), float(hi)), "n": int(inside.sum()),
-                      "accuracy": acc, "confidence": conf})
-    return float(ece), table
-
-
-def threshold_sweep(probs, truth, thresholds):
-    """For each top-1 threshold: share of images accepted and accuracy among them."""
-    probs = np.asarray(probs, dtype=float)
-    truth = np.asarray(truth, dtype=int)
-    confidence, correct = probs.max(1), probs.argmax(1) == truth
-    rows = []
-    for t in thresholds:
-        kept = confidence >= t
-        rows.append({"threshold": float(t), "coverage": float(kept.mean()),
-                     "accuracy": float(correct[kept].mean()) if kept.any() else math.nan})
-    return rows
+        inside = (probs > lo) & (probs <= hi) if lo > 0 else probs <= hi
+        if inside.any():
+            ece += inside.mean() * abs(probs[inside].mean() - actual[inside].mean())
+    return float(ece)

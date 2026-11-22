@@ -9,7 +9,7 @@ app_port: 7860
 
 # OcuScreen AI
 
-A two-stage preliminary screening web app: Keras image model → JSON rule set combined with symptoms → examination priority. This is a prototype that has not been clinically validated; it is not a diagnostic device.
+A two-stage preliminary screening web app: ONNX image model that reports visible eye signs → JSON rule set combined with symptoms → examination priority. This is a prototype that has not been clinically validated; it is not a diagnostic device.
 
 The backend, API messages and documentation are in English. The web interface is bilingual: English by default, with a switch to Vietnamese.
 
@@ -17,15 +17,17 @@ The backend, API messages and documentation are in English. The web interface is
 
 | Path | Role |
 |---|---|
-| `model/keras_model.h5` | Trained image model (EfficientNetV2-S, about 198 MB); not in the repo, download it from Drive as described below |
-| `model/labels.txt` | All 12 classes in the order verified against the Drive copy |
-| `backend/image_predictor.py` | Loads the model once, preprocesses images, runs CPU inference |
-| `backend/attention.py` | Optional Grad-CAM map of where the model looked |
+| `model/model_card.json` | Model contract: input preprocessing, output names, per-label thresholds and which labels are published; written by `training/export.py` |
+| `model/ocuscreen.onnx` | Image model (frozen DINOv2 ViT-S/14 backbone + linear head); not in the repo, built by `training/` |
+| `model/preprocess_golden.npz` | Fixed photos with the tensor and outputs the exporter got, used by a test to catch preprocessing drift |
+| `training/` | Feature extraction, head fitting with grouped cross-validation, and ONNX export |
+| `backend/image_predictor.py` | Checks the model card, loads the ONNX model once, preprocesses images, runs CPU inference and turns scores into findings |
+| `backend/attention.py` | Optional map of which image patches pushed a label's score up |
 | `backend/risk_engine.py` | Combines image signs and symptoms using the JSON rules |
 | `backend/i18n.py` | English/Vietnamese message catalog for API responses |
 | `backend/app.py` | FastAPI app and static frontend |
 | `backend/__init__.py` | Python package marker |
-| `data/disease_knowledge.json` | 11 eye labels (including Normal), 29 checklist items, triage rules, 9 symptom patterns; every user-facing text has `en` and `vi` versions |
+| `data/disease_knowledge.json` | 12 image signs (including Normal), 29 checklist items, triage rules, 9 symptom patterns; every user-facing text has `en` and `vi` versions |
 | `frontend/index.html` | Semantic page shell: progress, preview, checklist, result |
 | `frontend/css/styles.css` | Responsive styles and interaction states |
 | `frontend/js/app.js` | Coordinates upload, checklist, language and submit state |
@@ -43,27 +45,30 @@ The backend, API messages and documentation are in English. The web interface is
 | `Dockerfile` | Python 3.11, CPU, UID 1000, port 7860 |
 | `main.py` | Optional CLI, no `input()` |
 | `tests/test_app.py` | Tests for rules, images and the API |
+| `tests/conftest.py` | Builds a tiny fake ONNX model and card for the tests |
 | `tests/triage_cases.json` | Example triage cases, run as tests; to review with an eye specialist |
 
-Do not commit `.venv311`, user photos, datasets or secrets. The H5 file is about 198 MB, above GitHub's file size limit, so it is not in the repo. Download it from Drive: https://drive.google.com/file/d/10mt0wgyArY4zrOc53fuQjLfW3ykJNFyI/view . Download it in a browser, keep the name `keras_model.h5` and put it in `model/`. The model loads with TensorFlow 2.15.1 (input `(None,224,224,3)`, softmax output `(None,12)`); prediction quality still needs to be evaluated on real labeled eye photos.
+Do not commit virtual environments, user photos, datasets or secrets. The model files (`ocuscreen.onnx`, `preprocess_golden.npz`) are not in the repo; build them with the steps in section 7 ("Training the model") and put them in `model/` next to `model_card.json`. Prediction quality is only as good as the report `training/fit.py` writes; read it before trusting any label.
 
 ## 2. Defensive design decisions
 
-- Labels are read with `line.strip().split(' ', 1)`, separating the integer ID from the name. The full 0–11 order is checked to avoid mapping outputs to the wrong class.
-- Preprocessing matches the original main.py: EXIF orientation → RGB → center resize/crop with `ImageOps.fit(..., (224,224), LANCZOS)` → float32 → `(img / 127.5) - 1.0`. Because a centre crop can cut off an eye near the edge of a wide photo, the page asks the user to place a square over the eye (with a circle as a guide) and sends only that square; the default square is the same centre crop. MediaPipe face landmarks were not used: they need the whole face and fail on close-ups and everted eyelids, which are the photos this app asks for.
-- The current contract is multiclass softmax `(None,12)` with argmax. Having 12 classes does not mean multi-label. If the actual model uses sigmoid or logits, the API reports a contract error; confirm the output before changing the algorithm.
-- Class 11 always asks for a retake and is never used to infer disease. A model score below 0.60 is treated as uncertain. This threshold is a prototype assumption that needs calibration.
+- The server trusts nothing it has not checked: at startup it validates `model_card.json` (format, input spec, label names, which must be image signs in the knowledge base, thresholds), checks the SHA256 of the ONNX file against the card, and checks the session's input and output shapes. Any mismatch keeps the model unloaded and `/api/health` at 503.
+- Preprocessing is written in the card and shared with training: EXIF orientation → RGB → `center_crop` (or `letterbox`) to 224 → ImageNet mean/std → NCHW float32. `training/extract.py` calls the same `to_batch` function as the server, and `preprocess_golden.npz` lets a test compare the two on fixed photos. Because a centre crop can cut off an eye near the edge of a wide photo, the page asks the user to place a square over the eye (with a circle as a guide) and sends only that square. MediaPipe face landmarks were not used: they need the whole face and fail on close-ups and everted eyelids, which are the photos this app asks for.
+- The model is multi-label: one independent probability per sign, so a photo can show redness and discharge at once. Each label has its own threshold chosen on cross-validation (about 90% sensitivity for signs). Probabilities between the hint threshold and the threshold are `borderline`. A separate `eye_gate` output rejects photos that do not look like an eye.
+- A label is only reported if it passed the publish checks in `training/fit.py` (enough independent images, positives from at least two sources, and a high enough AUROC when one source is held out). Signs the model does not report are listed in `unassessed`, and the page says the photo was not checked for them, instead of implying they are absent. With no published Normal label, a photo without any sign is `uncertain`, not normal.
+- Publishing a label and letting it change the triage are separate decisions. A published label is shown to the user; it can raise the level on its own (for example, discharge with contact lenses → eye emergency) only when the card marks it `triage: true`, which `training/fit.py` sets only when the label passes the held-out-source check on at least three sources. Otherwise the reasons say the photo may show the sign and ask the user to tick the matching symptom if they notice it. Sign thresholds are also raised until 95% of Normal photos stay below them, and a label is dropped if, together with the others, it flags more than 10% of Normal photos.
+- The page shows sign names, never the probabilities: they are calibrated to the training data, where signs are far more common than in real use. The square the user places cannot be smaller than half the photo's short side, because the model is clearly worse on tighter close-ups.
 - `Normal` does not cancel symptoms. An invalid image with no symptoms returns `Not assessed`, not Green. Symptom warnings still appear when the model cannot load.
 - Stage 2 is not trained from the JSON. It reads the rules and ranks symptom patterns with 2 points for a matching image sign + 1 point per symptom; points are never turned into a disease percentage.
 - Triage is a separate step driven by `triage_rules` in the JSON. Each rule has a level (`red` or `yellow`), a destination, and conditions: `all` / `any` symptom IDs, `image` signs (an uncertain image counts only when `hint_ok` is set), `age` and `duration`. The highest matching level wins, and the most urgent destination among the rules at that level is used. With no matching rule the result is `green` (self-care) only if the age group is known and the user confirms they reviewed the whole checklist, because an unchecked box is not evidence that a symptom is absent; otherwise it stays `null`. Rules are checked for typos at startup. They have not been reviewed by an eye specialist yet; `tests/triage_cases.json` lists example cases to review with one.
 - One worker, one model, one upload/inference at a time; other requests get 429. This is a resource limit for a small demo, not a complete DDoS defense.
 - Limits: 5 MB and 25 megapixels per uploaded image (the page downscales larger photos first), JPEG/PNG/WebP only, no animated images. Paths are based on module location, not the working directory.
-- `tensorflow-cpu` avoids CUDA dependencies; the process can still run out of memory on a very small host. Docker uses TF 2.15.1 / Keras 2.15.0, the Keras version the H5 file was saved with.
+- `onnxruntime` (CPU) replaces TensorFlow, which makes the image and its memory use much smaller. `ORT_NUM_THREADS` sets the number of inference threads (default 2 in Docker).
 - The app creates no records and does not write photos or checklists to a database. The multipart parser may use a temporary file and then close it; the hosting platform may keep its own access logs. Only the frontend folder is public through the static route.
 
 ## 3. Run locally with Docker (Windows Docker Desktop or WSL)
 
-Put the H5 file in place first, then open a terminal in the folder that contains the Dockerfile. The build stops with an error if `model/keras_model.h5` is missing, and the image reports its health through `/api/health`:
+Put `ocuscreen.onnx` and `model_card.json` in `model/` first, then open a terminal in the folder that contains the Dockerfile. The build stops with an error if either is missing, and the image reports its health through `/api/health`:
 
 ```bash
 docker build -t ocuscreen-ai .
@@ -91,7 +96,7 @@ On Windows PowerShell use `py -3.11 -m venv .venv`, then `.venv\Scripts\Activate
 
 **Cost conditions checked on 2026-09-11:** the current documentation says Docker/Gradio Spaces that run compute need a paid plan to create; CPU Basic has no hourly fee. Docker Spaces cannot be promised to be fully free on a Free account. Check what your account shows before creating one. Source: https://huggingface.co/docs/hub/spaces-overview .
 
-1. Unpack the project and put the original H5 at `model/keras_model.h5`. Do not rename the labels file.
+1. Unpack the project and put `ocuscreen.onnx` in `model/` next to `model_card.json`. Do not rename either file.
 2. Sign in at https://huggingface.co and open https://huggingface.co/new-space .
 3. Choose the name `ocuscreen-ai`, SDK **Docker**, template **Blank** if offered. Choose **Public** so outside users can access it. Choose CPU Basic if your account allows it.
 4. Note that Public exposes the code and the model in the repo, not only the web page. Only upload assets the team is allowed to share; do not upload other people's test photos.
@@ -105,18 +110,18 @@ hf auth login
 hf upload YOUR_USERNAME/ocuscreen-ai . . --repo-type space
 ```
 
-8. Open the **Logs** tab. Wait until the build finishes and the status is **Running**. If the H5 is missing or incompatible, the page still loads but `/api/health` returns 503; do not treat that as a successful deployment.
+8. Open the **Logs** tab. Wait until the build finishes and the status is **Running**. If the model is missing or does not match its card, the page still loads but `/api/health` returns 503; do not treat that as a successful deployment.
 9. In the **App** tab, use the option to open the app directly and copy the real `.hf.space` URL. You can also share the Space page URL from the address bar. Do not guess the subdomain.
-10. Open the link in a private window and test upload, checklist and result. Try `Normal` with reduced vision: the High warning must remain; try a background photo: it must ask for a retake. Confirm labels with real test photos; do not assume the model is always right.
+10. Open the link in a private window and test upload, checklist and result. Try a photo with no visible sign plus reduced vision: the warning must remain; try a photo that is not an eye: it must ask for a retake. Confirm labels with real test photos; do not assume the model is always right.
 
 Docker Spaces require the app to listen on `0.0.0.0` and the port declared in the README; this is already configured. Source: https://huggingface.co/docs/hub/spaces-sdks-docker . CLI: https://huggingface.co/docs/huggingface_hub/guides/cli .
 
 ## 5. Render option
 
-1. Render builds from a Git repository. The current H5 (about 198 MB) is above GitHub's 100 MB file limit and is ignored by `.gitignore`, so it cannot be pushed with the code; the Docker build fails without it. Use a host that can store the file (for example Hugging Face Spaces, section 4) or a model file below 100 MB.
+1. Render builds from a Git repository. `model/ocuscreen.onnx` is ignored by `.gitignore`, so it is not pushed with the code and the Docker build fails without it. Use a host that can store the file (for example Hugging Face Spaces, section 4), or add the file to the deployment some other way.
 2. In the Render Dashboard choose **New → Web Service** and connect the repo.
 3. Choose the **Docker** runtime, Dockerfile path `./Dockerfile`, with the root at the folder that contains it.
-4. Pick a suitable instance. The server was measured at about 657 MB of RAM with the current model, above the 512 MB of Render Free, so Free is expected to run out of memory. On OOM, add RAM or move to a lighter runtime/model; do not add workers.
+4. Pick a suitable instance and check the memory use in the logs after the first requests. The old TensorFlow build used about 657 MB, above the 512 MB of Render Free; the ONNX build has not been measured on Render yet. On OOM, add RAM; do not add workers.
 5. Set `PORT=7860` if needed. The Dockerfile also accepts the PORT value the platform provides. Set the Health Check Path to `/api/health`.
 6. Deploy, check the logs and health status, then copy the public URL Render provides.
 7. Render Free may sleep after 15 minutes without requests and needs to start up again on the next visit. Do not use Free to promise an always-available service. Source: https://render.com/docs/free .
@@ -134,7 +139,9 @@ Docker Spaces require the app to listen on `0.0.0.0` and the port declared in th
 curl -X POST 'http://localhost:7860/api/screen?lang=vi' -F 'image=@eye.jpg' -F 'symptoms=["itch","gritty"]' -F age_group=adult -F duration=1_7d -F confirmed=true
 ```
 
-The response contains `image` (class_id, label, confidence, status, message, hint, model_version, quality, top3, attention) and `risk` (level, label, urgent, destination, destination_text, reasons, recommendation, first_aid, warnings, rules, candidates, image_used, knowledge_version, disclaimer). `risk.level` is a language-independent code, `red`, `yellow`, `green` or `null` (not assessed); `risk.label` is its translated text and `urgent` is true for red. `destination` is a code (`eye_emergency`, `emergency`, `eye_today`, `doctor_today`, `eye_doctor`, `doctor`, `self_care`); `rules` lists the IDs of every matching rule, or `needs_confirmation` when a green result was withheld. `warnings` carries the corticosteroid eye-drop warning for every assessed result. An unreadable image or Back Ground returns 200 with status invalid, plus symptom warnings if any. A model failure returns 503 with the symptom-based risk. Bad input returns 422; an oversized request 413; busy 429. `confidence` is only the model's output score. `hint` is set only for an uncertain image whose top class clearly leads (uncalibrated guards in `image_predictor.py`); it only counts in rules marked `hint_ok`, and the reasons then say the image result is uncertain. `model_version` is the SHA256 of the loaded H5 file. `quality` holds the sharpness (variance of the Laplacian), mean brightness and glare share of the centre crop the model sees, the flags they raise (`blurry`, `dark`, `bright`, `glare`) and translated retake tips in `advice`; it is `null` when the image could not be read. The flags never change the image status or the triage, and their thresholds in `image_predictor.py` are uncalibrated. `top3` lists the three highest model scores; the triage never reads it, and the page shows the runners-up only for a valid image, without Back Ground or scores under 0.15. The page hides the label of an uncertain image and prints the model and rule versions with the result. With `explain=true`, `attention` holds a Grad-CAM map (a JPEG data URL of the 224×224 crop the model saw, coloured where the model looked) and a note, only for a valid label other than Normal; otherwise it is `null`. It shows what drove the model's score, not where a lesion is, and the triage never reads it. Grad-CAM++ was tried first and dropped: with this model's pooling head it gave nearly the same map for every class (see `backend/attention.py`). Colours are scaled to each photo's own peak. The map needs a model that is a plain chain of layers ending in a softmax Dense layer, as the current one is; for any other model it is turned off at startup with a warning in the log. It must be checked again after the model is retrained.
+The response contains `image` (status, label, confidence, findings, unassessed, unassessed_note, hint, top3, message, attention, model_version, quality; `class_id` is always `null` and kept for older clients) and `risk` (level, label, urgent, destination, destination_text, reasons, recommendation, first_aid, warnings, rules, candidates, image_used, knowledge_version, disclaimer). `risk.level` is a language-independent code, `red`, `yellow`, `green` or `null` (not assessed); `risk.label` is its translated text and `urgent` is true for red. `destination` is a code (`eye_emergency`, `emergency`, `eye_today`, `doctor_today`, `eye_doctor`, `doctor`, `self_care`); `rules` lists the IDs of every matching rule, or `needs_confirmation` when a green result was withheld. `warnings` carries the corticosteroid eye-drop warning for every assessed result.
+
+`image.status` is `valid` (at least one published sign is above its threshold, or a published Normal is), `uncertain` (nothing is) or `invalid` (unreadable, or the eye gate says it is not an eye photo). An invalid image returns 200 with symptom warnings if any. A model failure returns 503 with the symptom-based risk. Bad input returns 422; an oversized request 413; busy 429. `findings` lists every published sign that is `positive` or `borderline`, with its calibrated probability, threshold and `triage` flag; every positive finding with `triage: true` is passed to the rules, so two signs can both raise the level. `label` and `confidence` repeat the strongest positive finding. `unassessed` lists the image signs this model does not report, and `unassessed_note` says so in the chosen language. `hint` is set only for an uncertain image with one clearly leading borderline sign; it only counts in rules marked `hint_ok`, and only for a `triage` label, and the reasons then say the image result is uncertain. `top3` lists the three highest published scores; the triage never reads it. `model_version` is the SHA256 of the ONNX file. `quality` holds the sharpness (variance of the Laplacian), mean brightness and glare share of the crop the model sees, the flags they raise (`blurry`, `dark`, `bright`, `glare`) and translated retake tips in `advice`; it is `null` when the image could not be read. The flags never change the image status or the triage, and their thresholds in `image_predictor.py` are uncalibrated. With `explain=true`, `attention` holds a map for the headline sign (a JPEG data URL of the 224×224 crop the model saw, coloured on the 16×16 patches whose features pushed that sign's score up) and a note, only for a valid label other than Normal; otherwise it is `null`. The head is linear, so this map is exact for the model (no gradients needed), but it shows what drove the score, not where a lesion is, and the triage never reads it.
 
 ## 7. Testing and troubleshooting
 
@@ -146,37 +153,48 @@ python -m pytest -q
 npm test
 ```
 
-`npm test` needs Node 18+ but no `npm install`. The Python tests use a fake model, so the H5 file is not required. The frontend uses ES modules served by FastAPI; do not open the HTML file directly.
+`npm test` needs Node 18+ but no `npm install`. The Python tests build a tiny fake ONNX model, so the real model is not required; the golden preprocessing test is skipped until `model/preprocess_golden.npz` exists. The frontend uses ES modules served by FastAPI; do not open the HTML file directly.
 
-- **FileNotFoundError / health 503:** check that `model/keras_model.h5` has the right name and contains real bytes, not a shortcut or LFS pointer.
-- **Unrecognized keyword / DepthwiseConv2D groups:** check that you are using the Docker dependencies; take the TensorFlow/Keras version from the original export environment. Do not edit the H5 config JSON or blindly remove layer attributes. Re-export with the correct environment and compare outputs on a fixed image before replacing the model.
-- **Wrong shape / output:** the artifact must have input `(None,224,224,3)` and softmax output `(None,12)`. Do not reinterpret sigmoid as softmax.
-- **OOM / exit 137:** keep `--workers 1`, do not use reload in the cloud, reduce image size or add host RAM. The CPU package does not guarantee no OOM.
+- **Health 503:** the log says why. Usually `ocuscreen.onnx` is missing, or its SHA256 does not match `model_card.json` because the two files come from different exports. Copy both from the same `training/export.py` run.
+- **Card errors:** a label name that is not an image sign in `data/disease_knowledge.json`, or a threshold outside 0–1, stops the model from loading. Fix the training output, not the check.
+- **OOM / exit 137:** keep `--workers 1`, do not use reload in the cloud, lower `ORT_NUM_THREADS` or add host RAM.
 - **API 404:** keep the frontend mount last in app.py and upload all folders.
 - **CORS:** the frontend calls relative paths on the same domain; no wildcard CORS is needed.
 - **Phone photo rejected:** the web page downscales photos to a 1600 px long edge before upload; direct API calls must send JPEG/PNG/WebP up to 5 MB and 25 megapixels. HEIC is not supported yet.
-- **Smaller model file:** `python scripts/strip_optimizer.py model/keras_model.h5 model/keras_model_slim.h5` re-saves the model without its optimizer state (about 198 MB → 82 MB, identical outputs, checked by the script). RAM use while serving stays about the same.
+
+### Training the model
+
+Training needs Python 3.10–3.12, PyTorch and the packages in `training/requirements.txt`, plus internet access the first time to download the DINOv2 weights through `torch.hub`. A GPU helps but is not required. The dataset folder must contain `labels.csv` with the columns `file`, `split` (`train`, `val`, `test`), `dup_group`, `source`, `normal` and one 0/1 column per sign (see `SIGNS` in `training/common.py`).
+
+```bash
+python -m pip install -r training/requirements.txt
+python training/extract.py --data "path/to/dataset"   # embeds 16 augmented views per photo
+python training/fit.py --data "path/to/dataset"       # cross-validation, thresholds, report
+python training/export.py --data "path/to/dataset"    # writes model/ocuscreen.onnx and the card
+```
+
+The backbone stays frozen: `extract.py` caches its features once (in `training/out/`), so `fit.py` only fits a logistic-regression head and runs in minutes. Augmented views use random crops, flips, blur, JPEG and small brightness changes, never colour shifts, because colour is the sign for redness, yellow eye and pallor. `fit.py` chooses regularisation, calibration and thresholds on repeated cross-validation grouped by `dup_group`, so near-duplicate photos never sit on both sides of a split, and scores the test split only once at the end. Read `training/out/report.md`: it says which labels were published and why the others were not. `export.py` folds the head into the ONNX graph, checks that onnxruntime matches PyTorch on test photos, and writes the card and the golden file.
 
 ### Evaluating the model
 
-`scripts/evaluate.py` measures a model on labeled photos it was not trained on. Put the photos in one folder per class, named exactly as in `model/labels.txt` (for example `test/Cornea Abnormal/001.jpg`), or list them in a CSV with `path,label` columns:
+`scripts/evaluate.py` measures an exported model on labeled photos it was not trained on, with the same preprocessing as the server. Pass the dataset's `labels.csv` (it uses the `test` split by default), or a CSV with `path,labels` columns where `labels` is a `;`-separated list of sign names:
 
 ```bash
-python scripts/evaluate.py test/ --model model/keras_model.h5 --out report.json
+python scripts/evaluate.py "path/to/dataset/labels.csv" --crop 1.0,0.7,0.5 --out report.json
 ```
 
-It prints, per class, sensitivity and specificity with 95% Wilson intervals, PPV and one-vs-rest AUROC, then the share of images accepted and their accuracy at several top-1 thresholds (to choose the 0.60 threshold from data), and the accuracy on images with each photo-quality flag (to check whether the flags really mark photos the model gets wrong). The JSON adds the confusion matrix and calibration bins (ECE). Images go through the same preprocessing as the server. Keep photos of the same person in one set, and run both model files on the same set to compare them.
+For each label it prints AUROC, average precision, and sensitivity, specificity (95% Wilson intervals) and PPV at the card's threshold, plus calibration error. `--crop` repeats the run on centre crops of each photo, to check that close-ups (like the square the page sends) score as well as wide photos.
 
 ### After retraining the model
 
-- Try padding the photo to a square (letterbox) instead of the centre crop in `to_batch`, train with the same preprocessing, and keep it only if `scripts/evaluate.py` shows it is better on the same test set.
-- Recalibrate the 0.60 valid threshold, the hint guards and the photo-quality flags from the evaluation report.
-- Check the Grad-CAM maps on real photos; they turn off by themselves if the new model is not a chain of layers ending in a softmax Dense layer.
+- Compare `center_crop` and `letterbox` in the card on the same test set with `scripts/evaluate.py`, and keep the better one (extract again with the same setting).
+- Recalibrate the hint margin and the photo-quality flags from the evaluation report.
+- Check the attention maps on real photos: they should sit on the eye, not on the cheek or the background.
 - Have an eye specialist review the rules and the cases in `tests/triage_cases.json`.
 
 ## 8. Knowledge scope
 
-The references in the JSON include NHS pages on red eye, jaundice, bulging eyes and anaemia. These sources support the general descriptions of signs; they do not validate the app's weights or performance. Expert review of the rules, independent test data, calibration and false-negative assessment are needed before any use beyond a demo. An external eye photo cannot detect glaucoma, retinal disease or the cause of cloudiness in the eye. Do not infer a specific disease from the Normal/Cornea Abnormal label alone.
+The references in the JSON include NHS pages on red eye, jaundice, bulging eyes and anaemia. These sources support the general descriptions of signs; they do not validate the app's weights or performance. Expert review of the rules, independent test data, calibration and false-negative assessment are needed before any use beyond a demo. An external eye photo cannot detect glaucoma, retinal disease or the cause of cloudiness in the eye. Do not infer a specific disease from one image sign alone.
 
 When adding or editing knowledge-base text, provide both `en` and `vi` versions; the test suite checks that every text pair is complete.
 

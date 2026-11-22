@@ -6,8 +6,12 @@
  * area they mean. Coordinates are pixels of the upright (EXIF-rotated) photo.
  */
 
-/** Smallest crop side as a share of the photo's short side. */
-export const MIN_SHARE = 0.2;
+/**
+ * Smallest crop side as a share of the photo's short side. The model was trained on
+ * photos framed around the whole eye and gets worse on tight close-ups (half the short
+ * side and below in the evaluation), so the square cannot shrink below this.
+ */
+export const MIN_SHARE = 0.5;
 /** The server rejects images under 64 pixels a side. */
 export const MIN_PIXELS = 64;
 

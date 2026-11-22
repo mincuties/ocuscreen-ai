@@ -1,11 +1,13 @@
-"""Evaluate an image model on a labeled test set.
+"""Evaluate the ONNX image model on a labeled test set, label by label.
 
-The test set is either a folder with one sub-folder per class, named exactly as in
-model/labels.txt (for example `test/Cornea Abnormal/*.jpg`), or a CSV file with
-`path,label` columns (paths relative to the CSV). Images go through the same
-preprocessing as the server.
+The test set is the dataset's labels.csv (one 0/1 column per finding, plus `file` and
+`split`; only `split == test` rows are used unless --split all) or a CSV with
+`path,labels` columns where `labels` lists sign names separated by `;` (empty means
+Normal). Paths are relative to the CSV. Images go through the server's own
+preprocessing and model session, and are scored at the thresholds in model_card.json.
 
-    python scripts/evaluate.py test/ --model model/keras_model.h5 --out report.json
+    python scripts/evaluate.py "C:/data/_clean_v1/labels.csv" --out report.json
+    python scripts/evaluate.py test.csv --crop 1.0,0.7,0.5
 
 Only use images the model was not trained on, and keep photos of the same person in
 one set: otherwise the numbers are too optimistic.
@@ -15,117 +17,117 @@ import argparse
 import csv
 import json
 import math
-import os
 import sys
 from pathlib import Path
 
-os.environ.setdefault("CUDA_VISIBLE_DEVICES", "-1")
-os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import numpy as np
 
 from backend import metrics
-from backend.image_predictor import (
-    EXPECTED,
-    QUALITY_FLAGS,
-    InvalidImage,
-    decode,
-    file_sha256,
-    measure_quality,
-    to_batch,
-)
-
-EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+from backend import image_predictor as ip
+from training.common import NORMAL as NORMAL_COLUMN, SIGNS
 
 
-def load_items(source):
-    """[(path, class index)] from a class-per-folder tree or a path,label CSV."""
+def load_items(source, split="test"):
+    """[(path, set of sign names)]; Normal is the empty set."""
     source = Path(source)
     items = []
-    if source.is_dir():
-        for folder in sorted(p for p in source.iterdir() if p.is_dir()):
-            if folder.name not in EXPECTED:
-                raise SystemExit(f"Unknown class folder: {folder.name!r}")
-            for f in sorted(folder.rglob("*")):
-                if f.suffix.lower() in EXTENSIONS:
-                    items.append((f, EXPECTED.index(folder.name)))
-    else:
-        with open(source, newline="", encoding="utf-8-sig") as f:
-            for row in csv.DictReader(f):
-                if row["label"] not in EXPECTED:
-                    raise SystemExit(f"Unknown label: {row['label']!r}")
-                items.append((source.parent / row["path"], EXPECTED.index(row["label"])))
+    with open(source, newline="", encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        fields = set(reader.fieldnames or [])
+        for row in reader:
+            if "labels" in fields:
+                names = {n.strip() for n in row["labels"].split(";") if n.strip()}
+                unknown = names - set(ip.KB["image_signs"])
+                if unknown:
+                    raise SystemExit(f"Unknown labels: {sorted(unknown)}")
+                items.append((source.parent / row["path"], names - {ip.NORMAL}))
+            elif "file" in fields:
+                if split != "all" and row.get("split") != split:
+                    continue
+                names = {SIGNS[c] for c in SIGNS if c in row and row[c] == "1"}
+                items.append((source.parent / row["file"], names))
+            else:
+                raise SystemExit("CSV needs path,labels columns or a dataset labels.csv")
     if not items:
         raise SystemExit("No images found.")
     return items
 
 
-def predict_all(model, items, batch_size=16):
-    """Class probabilities and quality flags for each readable image.
+def centre_crop(image, fraction):
+    if fraction >= 1:
+        return image
+    w, h = image.size
+    side = int(min(w, h) * fraction)
+    left, top = (w - side) // 2, (h - side) // 2
+    return image.crop((left, top, left + side, top + side))
 
-    Unreadable images are reported in ``skipped``.
-    """
+
+def predict_all(session, card, items, fraction=1.0):
+    """Calibrated probabilities (images x labels), truth sets, skipped files, quality flags."""
     probs, truth, skipped, flags = [], [], [], []
-    batch, batch_truth = [], []
-
-    def flush():
-        if batch:
-            out = np.asarray(model(np.concatenate(batch), training=False), dtype=float)
-            probs.extend(out)
-            truth.extend(batch_truth)
-            batch.clear()
-            batch_truth.clear()
-
-    for path, label in items:
+    for path, names in items:
         try:
-            image = decode(Path(path).read_bytes())
-            batch.append(to_batch(image))
-            batch_truth.append(label)
-            flags.append(measure_quality(image)["flags"])
-        except (InvalidImage, OSError) as exc:
+            image = ip.decode(Path(path).read_bytes())
+        except (ip.InvalidImage, OSError) as exc:
             skipped.append({"path": str(path), "reason": str(exc)})
-        if len(batch) == batch_size:
-            flush()
-    flush()
-    return np.array(probs), np.array(truth, dtype=int), skipped, flags
+            continue
+        image = centre_crop(image, fraction)
+        logits, _ = ip.run_model(session, card, ip.to_batch(image, card["input"]))
+        probs.append(ip.calibrated(card, logits))
+        truth.append(names)
+        flags.append(ip.measure_quality(image)["flags"])
+    return np.array(probs), truth, skipped, flags
 
 
-def quality_report(probs, truth, flags):
-    """Accuracy with and without each photo-quality flag, to calibrate the thresholds."""
-    correct = probs.argmax(1) == truth
+def build_report(card, probs, truth, skipped, flags):
+    labels = [l for l in card["labels"] if l["name"] != ip.GATE]
     rows = []
-    for flag in (*QUALITY_FLAGS, None):
+    for label in labels:
+        p = probs[:, label["index"]]
+        if label["name"] == ip.NORMAL:
+            y = np.array([not names for names in truth])
+        else:
+            y = np.array([label["name"] in names for names in truth])
+        rows.append({
+            "label": label["name"],
+            "published": label["published"],
+            "threshold": label["threshold"],
+            **metrics.binary_rates(p, y, label["threshold"]),
+            "auroc": metrics.auroc(p, y),
+            "ap": metrics.average_precision(p, y),
+            "ece": metrics.binary_ece(p, y),
+        })
+    published = [l for l in labels if l["published"] and l["name"] != ip.NORMAL]
+    called = np.zeros(len(truth), bool)
+    for label in published:
+        called |= probs[:, label["index"]] >= label["threshold"]
+    has_sign = np.array([bool(names & {l["name"] for l in published}) for names in truth])
+    is_normal = np.array([not names for names in truth])
+    gate = next(l for l in card["labels"] if l["name"] == ip.GATE)
+    quality = []
+    for flag in (*ip.QUALITY_FLAGS, None):
         chosen = np.array([(flag in f) if flag else not f for f in flags], dtype=bool)
-        rows.append(
-            {
-                "flag": flag or "none",
-                "images": int(chosen.sum()),
-                "accuracy": float(correct[chosen].mean()) if chosen.any() else float("nan"),
-            }
-        )
-    return rows
-
-
-def build_report(probs, truth, skipped, model_path=None, flags=None):
-    ece, bins = metrics.expected_calibration_error(probs, truth)
+        right = called == has_sign
+        quality.append({
+            "flag": flag or "none",
+            "images": int(chosen.sum()),
+            "any_sign_agreement": float(right[chosen].mean()) if chosen.any() else math.nan,
+        })
     return {
-        "model": str(model_path) if model_path else None,
-        "model_sha256": file_sha256(model_path) if model_path else None,
-        "images": int(len(truth)),
+        "model_sha256": card["sha256"],
+        "images": len(truth),
         "skipped": skipped,
-        "accuracy": float((probs.argmax(1) == truth).mean()),
-        "per_class": metrics.per_class(probs, truth, EXPECTED),
-        "confusion_matrix": metrics.confusion_matrix(truth, probs.argmax(1), len(EXPECTED)).tolist(),
-        "ece": ece,
-        "calibration_bins": bins,
-        "threshold_sweep": metrics.threshold_sweep(probs, truth, [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]),
-        "quality": quality_report(probs, truth, flags) if flags is not None else [],
+        "labels": rows,
+        "normal_with_a_sign": float(called[is_normal].mean()) if is_normal.any() else math.nan,
+        "eye_gate_pass": float((probs[:, gate["index"]] >= gate["threshold"]).mean()),
+        "quality": quality,
     }
 
 
 def no_nan(value):
-    """JSON has no NaN: write undefined metrics (e.g. a class with no images) as null."""
+    """JSON has no NaN: write undefined metrics (e.g. a label with no images) as null."""
     if isinstance(value, float) and math.isnan(value):
         return None
     if isinstance(value, dict):
@@ -139,50 +141,53 @@ def fmt(value):
     return "-" if value is None or (isinstance(value, float) and math.isnan(value)) else f"{value:.2f}"
 
 
-def summary(report):
+def summary(report, title=""):
     lines = [
-        f"Images: {report['images']} (skipped {len(report['skipped'])}), "
-        f"top-1 accuracy {fmt(report['accuracy'])}, ECE {fmt(report['ece'])}",
+        f"{title}Images: {report['images']} (skipped {len(report['skipped'])}), "
+        f"eye gate pass {fmt(report['eye_gate_pass'])}, "
+        f"Normal photos with a published sign {fmt(report['normal_with_a_sign'])}",
         "",
-        "| Class | n | Sensitivity (95% CI) | Specificity (95% CI) | PPV | AUROC |",
-        "|---|---|---|---|---|---|",
+        "| Label | Published | n | Sensitivity (95% CI) | Specificity (95% CI) | PPV | AUROC | AP | ECE |",
+        "|---|---|---|---|---|---|---|---|---|",
     ]
-    for r in report["per_class"]:
+    for r in report["labels"]:
         lo, hi = r["sensitivity_ci"]
         slo, shi = r["specificity_ci"]
         lines.append(
-            f"| {r['class']} | {r['n']} | {fmt(r['sensitivity'])} ({fmt(lo)}-{fmt(hi)}) | "
-            f"{fmt(r['specificity'])} ({fmt(slo)}-{fmt(shi)}) | {fmt(r['ppv'])} | {fmt(r['auroc'])} |"
+            f"| {r['label']} | {'yes' if r['published'] else 'no'} | {r['n_pos']} | "
+            f"{fmt(r['sensitivity'])} ({fmt(lo)}-{fmt(hi)}) | {fmt(r['specificity'])} ({fmt(slo)}-{fmt(shi)}) | "
+            f"{fmt(r['ppv'])} | {fmt(r['auroc'])} | {fmt(r['ap'])} | {fmt(r['ece'])} |"
         )
-    lines += ["", "| Top-1 threshold | Images accepted | Accuracy of accepted |", "|---|---|---|"]
-    for r in report["threshold_sweep"]:
-        lines.append(f"| {r['threshold']:.1f} | {fmt(r['coverage'])} | {fmt(r['accuracy'])} |")
-    if report["quality"]:
-        lines += ["", "| Photo-quality flag | Images | Top-1 accuracy |", "|---|---|---|"]
-        for r in report["quality"]:
-            lines.append(f"| {r['flag']} | {r['images']} | {fmt(r['accuracy'])} |")
+    lines += ["", "| Photo-quality flag | Images | Any-sign call agrees with labels |", "|---|---|---|"]
+    for r in report["quality"]:
+        lines.append(f"| {r['flag']} | {r['images']} | {fmt(r['any_sign_agreement'])} |")
     return "\n".join(lines)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("test_set", help="class-per-folder directory or path,label CSV")
-    parser.add_argument("--model", type=Path, default=Path("model/keras_model.h5"))
+    parser.add_argument("test_set", help="dataset labels.csv or a path,labels CSV")
+    parser.add_argument("--model-dir", type=Path, help="folder with model_card.json (default model/)")
+    parser.add_argument("--split", default="test", help="split of labels.csv to use, or 'all'")
+    parser.add_argument("--crop", default="1.0", help="centre-crop fractions, e.g. 1.0,0.7,0.5")
     parser.add_argument("--out", type=Path, help="write the full report as JSON")
     args = parser.parse_args()
 
-    import tensorflow as tf
-
-    model = tf.keras.models.load_model(args.model, compile=False)
-    if tuple(model.output_shape) != (None, len(EXPECTED)):
-        raise SystemExit(f"Model output must be (None, {len(EXPECTED)}).")
-    probs, truth, skipped, flags = predict_all(model, load_items(args.test_set))
-    if not len(truth):
-        raise SystemExit("No readable images.")
-    report = build_report(probs, truth, skipped, args.model, flags)
-    print(summary(report))
+    if args.model_dir:
+        ip.MODEL_DIR = args.model_dir
+    session, card = ip.load_artifacts()
+    items = load_items(args.test_set, args.split)
+    reports = {}
+    for fraction in (float(x) for x in args.crop.split(",")):
+        probs, truth, skipped, flags = predict_all(session, card, items, fraction)
+        if not len(truth):
+            raise SystemExit("No readable images.")
+        report = build_report(card, probs, truth, skipped, flags)
+        reports[str(fraction)] = report
+        print(summary(report, f"Centre crop {fraction:.0%}. "))
+        print()
     if args.out:
-        args.out.write_text(json.dumps(no_nan(report), indent=2), encoding="utf-8")
+        args.out.write_text(json.dumps(no_nan(reports), indent=2), encoding="utf-8")
 
 
 if __name__ == "__main__":

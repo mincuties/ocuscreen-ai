@@ -1,52 +1,46 @@
-"""CPU inference for the trusted, locally supplied 12-class Keras artifact."""
+"""CPU inference for the locally supplied ONNX model described by model/model_card.json."""
 
-import os
-
-os.environ.setdefault("CUDA_VISIBLE_DEVICES", "-1")
-os.environ.setdefault("TF_NUM_INTRAOP_THREADS", "2")
-os.environ.setdefault("TF_NUM_INTEROP_THREADS", "1")
-os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
 import hashlib
+import json
 import logging
-from pathlib import Path
+import math
+import os
 from io import BytesIO
+from pathlib import Path
 from threading import RLock
 import warnings
+
 import numpy as np
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from backend import attention
-from backend.i18n import DEFAULT, t
+from backend.i18n import DEFAULT, localize, t
+from backend.risk_engine import KB
 
 log = logging.getLogger("ocuscreen")
 
 ROOT = Path(__file__).resolve().parents[1]
-MODEL_PATH = Path(os.getenv("MODEL_PATH", str(ROOT / "model/keras_model.h5")))
-LABELS_PATH = ROOT / "model/labels.txt"
+MODEL_DIR = Path(os.getenv("MODEL_DIR", str(ROOT / "model")))
+CARD_NAME = "model_card.json"
 MAX_BYTES = 5 * 1024 * 1024
 # 25 MP covers 12-24 MP phone photos; the browser downscales larger ones before upload.
 MAX_PIXELS = 25_000_000
 Image.MAX_IMAGE_PIXELS = MAX_PIXELS
-EXPECTED = [
-    "Normal",
-    "Redness",
-    "Blood Patch",
-    "Swelling",
-    "Discharge",
-    "Watery",
-    "Cornea Abnormal",
-    "Eyelid Abnormal",
-    "Yellow Eye",
-    "Bulging Eye",
-    "Pale Inner Eyelid",
-    "Back Ground",
-]
-# Uncalibrated guards for a "lean" when the image is uncertain (top-1 below 0.60).
-# Junk images (white, black, noise) measured top-1 of 0.10-0.15 with the current model.
-VALID_MIN = 0.60
-HINT_MIN = 0.30
-HINT_MIN_MARGIN = 0.10
-HINT_MAX_BACKGROUND = 0.10
+NORMAL = "Normal"
+GATE = "eye_gate"
+# Preprocessing used when no model card is loaded (the training default).
+DEFAULT_INPUT = {
+    "name": "image",
+    "size": 224,
+    "layout": "NCHW",
+    "resize": "center_crop",
+    "mean": [0.485, 0.456, 0.406],
+    "std": [0.229, 0.224, 0.225],
+}
+RESIZE_MODES = ("center_crop", "letterbox")
+# A borderline sign only becomes the hint of an uncertain photo when it leads the
+# next borderline sign by this much probability.
+HINT_MARGIN = 0.10
 # Uncalibrated photo-quality checks on the centre crop the model sees, at twice its
 # resolution. They only suggest a retake; they never change the result or the triage.
 QUALITY_SIZE = 448
@@ -55,12 +49,11 @@ DARK_MAX = 50.0  # mean grey level, 0-255
 BRIGHT_MIN = 215.0
 GLARE_MAX = 0.03  # share of near-white pixels (every channel at 250 or more)
 QUALITY_FLAGS = ("blurry", "dark", "bright", "glare")
+ORT_THREADS = int(os.getenv("ORT_NUM_THREADS", "2"))
 _lock = RLock()
-_model = None
-_labels = None
-# (feature model, head layers) for attention maps; None if the model does not fit.
-_attention = None
-# SHA256 of the loaded H5, returned with each result so outputs can be traced to a file.
+_session = None
+_card = None
+# SHA256 of the loaded ONNX file, returned with each result so outputs can be traced.
 model_version = None
 
 
@@ -76,20 +69,6 @@ class InvalidImage(ValueError):
         super().__init__(t(key))
 
 
-def read_labels(path=LABELS_PATH):
-    labels = []
-    for line in Path(path).read_text(encoding="utf-8-sig").splitlines():
-        if not line.strip():
-            continue
-        parts = line.strip().split(" ", 1)
-        if len(parts) != 2 or not parts[0].isdigit() or not parts[1].strip():
-            raise ValueError("labels.txt lines must look like: 10 Pale Inner Eyelid")
-        labels.append((int(parts[0]), parts[1].strip()))
-    if labels != list(enumerate(EXPECTED)):
-        raise ValueError("labels.txt must list the 12 published classes in order.")
-    return labels
-
-
 def file_sha256(path):
     digest = hashlib.sha256()
     with open(path, "rb") as f:
@@ -98,36 +77,99 @@ def file_sha256(path):
     return digest.hexdigest()
 
 
-def load_artifacts():
-    global _model, _labels, model_version, _attention
-    with _lock:
-        if _model is not None:
-            return _model, _labels
-        try:
-            labels = read_labels()
-            if not MODEL_PATH.is_file():
-                raise FileNotFoundError("Missing model/keras_model.h5")
-            import tensorflow as tf
+def _number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
 
-            model = tf.keras.models.load_model(MODEL_PATH, compile=False)
-            if tuple(model.input_shape) != (None, 224, 224, 3):
-                raise ValueError("Model input must be (None, 224, 224, 3).")
-            if tuple(model.output_shape) != (None, 12):
-                raise ValueError("Model output must be (None, 12).")
-            version = file_sha256(MODEL_PATH)
-            try:
-                _attention = attention.split_model(model)
-            except Exception:
-                # Optional feature: the model still serves predictions without it.
-                log.warning(
-                    "Attention maps are unavailable for this model.", exc_info=True
-                )
-                _attention = None
-            _model, _labels, model_version = model, labels, version
-            return _model, _labels
+
+def check_card(card):
+    """Return the card or raise ValueError on anything that would silently misbehave."""
+    spec = card.get("input", {})
+    problems = [
+        card.get("format") != 1,
+        not isinstance(card.get("model_file"), str) or "/" in card["model_file"] or "\\" in card["model_file"],
+        not isinstance(card.get("sha256"), str) or len(card["sha256"]) != 64,
+        not isinstance(spec.get("name"), str),
+        not isinstance(spec.get("size"), int) or spec["size"] < 32,
+        spec.get("layout") != "NCHW",
+        spec.get("resize") not in RESIZE_MODES,
+        not all(isinstance(spec.get(k), list) and len(spec[k]) == 3 and all(map(_number, spec[k])) for k in ("mean", "std")),
+        any(s <= 0 for s in spec.get("std") or [0]),
+        not isinstance(card.get("outputs", {}).get("grid"), int),
+    ]
+    if any(problems):
+        raise ValueError("model_card.json: invalid header or input section")
+    labels = card.get("labels")
+    if not isinstance(labels, list) or not labels:
+        raise ValueError("model_card.json: labels must be a non-empty list")
+    names = [label.get("name") for label in labels]
+    if len(set(names)) != len(names) or names.count(GATE) != 1 or NORMAL not in names:
+        raise ValueError("model_card.json: label names must be unique and include Normal and eye_gate")
+    known = set(KB["image_signs"])
+    for i, label in enumerate(labels):
+        platt = label.get("platt")
+        hint = label.get("hint_threshold")
+        bad = [
+            label.get("index") != i,
+            label["name"] != GATE and label["name"] not in known,
+            not isinstance(label.get("published"), bool),
+            # Optional; a card without it lets no label raise the triage level alone.
+            not isinstance(label.get("triage", False), bool),
+            label.get("triage", False) and not label["published"],
+            label["name"] == GATE and label["published"],
+            not (isinstance(platt, list) and len(platt) == 2 and all(map(_number, platt))),
+            not _number(label.get("threshold")) or not 0 < label["threshold"] < 1,
+            hint is not None and (not _number(hint) or not 0 < hint < label["threshold"]),
+        ]
+        if any(bad):
+            raise ValueError(f"model_card.json: invalid label {label.get('name')!r}")
+    return card
+
+
+def read_card(path=None):
+    path = Path(path) if path else MODEL_DIR / CARD_NAME
+    return check_card(json.loads(path.read_text(encoding="utf-8")))
+
+
+def check_session(session, card):
+    """The ONNX graph must match the card: input name and shape, output names and sizes."""
+    spec, outputs = card["input"], card["outputs"]
+    n, grid = len(card["labels"]), card["outputs"]["grid"]
+    inputs = session.get_inputs()
+    if len(inputs) != 1 or inputs[0].name != spec["name"] or list(inputs[0].shape[1:]) != [3, spec["size"], spec["size"]]:
+        raise ValueError("ONNX input does not match model_card.json")
+    shapes = {o.name: list(o.shape) for o in session.get_outputs()}
+    logits, patches = shapes.get(outputs.get("logits")), shapes.get(outputs.get("patch_logits"))
+    if logits is None or logits[1:] != [n]:
+        raise ValueError("ONNX logits do not match the labels in model_card.json")
+    if patches is None or patches[1:] != [grid * grid, n]:
+        raise ValueError("ONNX patch_logits do not match model_card.json")
+
+
+def load_artifacts():
+    global _session, _card, model_version
+    with _lock:
+        if _session is not None:
+            return _session, _card
+        try:
+            card = read_card()
+            path = MODEL_DIR / card["model_file"]
+            if not path.is_file():
+                raise FileNotFoundError(f"Missing model/{card['model_file']}")
+            version = file_sha256(path)
+            if version != card["sha256"]:
+                raise ValueError("The ONNX file does not match the sha256 in model_card.json")
+            import onnxruntime as ort
+
+            options = ort.SessionOptions()
+            options.intra_op_num_threads = ORT_THREADS
+            options.inter_op_num_threads = 1
+            session = ort.InferenceSession(str(path), options, providers=["CPUExecutionProvider"])
+            check_session(session, card)
+            _session, _card, model_version = session, card, version
+            return _session, _card
         except Exception as exc:
             raise ModelUnavailable(
-                "Could not load the model. Check the H5 file, labels and Keras version in the server log."
+                "Could not load the model. Check model/model_card.json and the ONNX file in the server log."
             ) from exc
 
 
@@ -166,13 +208,27 @@ def decode(image_bytes):
         raise InvalidImage("image_unreadable") from exc
 
 
-def to_batch(image):
-    image = ImageOps.fit(image, (224, 224), Image.Resampling.LANCZOS)
-    return ((np.asarray(image, dtype=np.float32) / 127.5) - 1.0)[None, ...]
+def model_view(image, spec):
+    """The square image the model sees (also the background of the attention map)."""
+    size = (spec["size"], spec["size"])
+    if spec["resize"] == "letterbox":
+        fill = tuple(int(round(m * 255)) for m in spec["mean"])
+        return ImageOps.pad(image, size, Image.Resampling.LANCZOS, color=fill)
+    return ImageOps.fit(image, size, Image.Resampling.LANCZOS)
 
 
-def preprocess(image_bytes):
-    return to_batch(decode(image_bytes))
+def to_batch(image, spec):
+    """(1, 3, size, size) float32, scaled to [0, 1] then normalized with the card's mean/std.
+
+    The training scripts import this function, so train and serve share one path.
+    """
+    a = np.asarray(model_view(image, spec), dtype=np.float32) / 255.0
+    a = (a - np.asarray(spec["mean"], dtype=np.float32)) / np.asarray(spec["std"], dtype=np.float32)
+    return np.ascontiguousarray(a.transpose(2, 0, 1)[None, ...])
+
+
+def preprocess(image_bytes, spec=DEFAULT_INPUT):
+    return to_batch(decode(image_bytes), spec)
 
 
 def measure_quality(image):
@@ -200,89 +256,129 @@ def measure_quality(image):
     }
 
 
+def run_model(session, card, batch):
+    outputs = card["outputs"]
+    try:
+        logits, patches = session.run(
+            [outputs["logits"], outputs["patch_logits"]], {card["input"]["name"]: batch}
+        )
+    except Exception as exc:
+        raise ModelUnavailable("Could not run the image model.") from exc
+    n, grid = len(card["labels"]), outputs["grid"]
+    logits, patches = np.asarray(logits, np.float64), np.asarray(patches, np.float64)
+    if (
+        logits.shape != (1, n)
+        or patches.shape != (1, grid * grid, n)
+        or not np.isfinite(logits).all()
+        or not np.isfinite(patches).all()
+    ):
+        raise ModelUnavailable("Invalid model output.")
+    return logits[0], patches[0]
+
+
+def calibrated(card, logits):
+    """Per-label probability after the card's Platt scaling (independent sigmoids)."""
+    a = np.array([label["platt"][0] for label in card["labels"]])
+    b = np.array([label["platt"][1] for label in card["labels"]])
+    return 1 / (1 + np.exp(-(a * logits + b)))
+
+
+def interpret(card, probs):
+    """Status, findings and the fields the risk engine and the page read."""
+    labels = card["labels"]
+    by_name = {label["name"]: label for label in labels}
+    gate = by_name[GATE]
+    published = [l for l in labels if l["published"] and l["name"] not in (NORMAL, GATE)]
+    findings = []
+    for label in published:
+        p = float(probs[label["index"]])
+        if p >= label["threshold"]:
+            state = "positive"
+        elif label["hint_threshold"] is not None and p >= label["hint_threshold"]:
+            state = "borderline"
+        else:
+            continue
+        findings.append(
+            {
+                "label": label["name"],
+                "probability": p,
+                "threshold": label["threshold"],
+                "state": state,
+                "triage": label.get("triage", False),
+            }
+        )
+    findings.sort(key=lambda f: (f["state"] != "positive", -f["probability"] / f["threshold"]))
+    positives = [f for f in findings if f["state"] == "positive"]
+    normal = by_name[NORMAL]
+    normal_p = float(probs[normal["index"]])
+    shown = {l["name"] for l in published} | ({NORMAL} if normal["published"] else set())
+    # Signs the knowledge base knows but this model does not report: the page must not
+    # read their absence as "no sign".
+    unassessed = [s for s in KB["image_signs"] if s != NORMAL and s not in shown]
+    if float(probs[gate["index"]]) < gate["threshold"]:
+        status, label, confidence = "invalid", None, None
+    elif positives:
+        status, label, confidence = "valid", positives[0]["label"], positives[0]["probability"]
+    elif normal["published"] and normal_p >= normal["threshold"]:
+        status, label, confidence = "valid", NORMAL, normal_p
+    else:
+        status, label, confidence = "uncertain", None, None
+    hint = None
+    if status == "uncertain":
+        borderline = sorted((f for f in findings if f["state"] == "borderline"), key=lambda f: -f["probability"])
+        if borderline and (len(borderline) == 1 or borderline[0]["probability"] - borderline[1]["probability"] >= HINT_MARGIN):
+            top = borderline[0]
+            hint = {"label": top["label"], "confidence": top["probability"], "triage": top["triage"]}
+    ranked = sorted(
+        (l for l in labels if l["name"] in shown), key=lambda l: -probs[l["index"]]
+    )
+    top3 = [{"label": l["name"], "confidence": float(probs[l["index"]])} for l in ranked[:3]]
+    return {
+        "status": status,
+        "label": label,
+        "confidence": confidence,
+        "findings": findings if status != "invalid" else [],
+        "unassessed": unassessed,
+        "hint": hint,
+        "top3": top3 if status != "invalid" else None,
+    }
+
+
 def predict_image(image_bytes, lang=DEFAULT, explain=False):
     image = decode(image_bytes)
-    batch = to_batch(image)
     quality = measure_quality(image)
     quality["advice"] = [t(f"quality_{flag}", lang) for flag in quality["flags"]]
     with _lock:
-        model, labels = load_artifacts()
-        split = _attention if explain else None
-        try:
-            if split:
-                # Same forward pass, also returning the feature map for the map below.
-                features, output = attention.forward(split, batch)
-            else:
-                features, output = None, model(batch, training=False)
-            scores = np.asarray(output, dtype=np.float32)
-        except Exception as exc:
-            raise ModelUnavailable("Could not run the image model.") from exc
-    if scores.shape != (1, 12) or not np.isfinite(scores).all():
-        raise ModelUnavailable("Invalid model output.")
-    # This artifact contract is multiclass probabilities, not multilabel sigmoid or logits.
-    if (
-        np.any(scores < 0)
-        or np.any(scores > 1)
-        or not np.isclose(scores.sum(), 1, atol=0.01)
-    ):
-        raise ModelUnavailable("Expected a multiclass model with a 12-value softmax output.")
-    index = int(np.argmax(scores[0]))
-    class_id, label = labels[index]
-    confidence = float(scores[0, index])
-    status = (
-        "invalid"
-        if class_id == 11
-        else ("uncertain" if confidence < VALID_MIN else "valid")
-    )
+        session, card = load_artifacts()
+        batch = to_batch(image, card["input"])
+        logits, patches = run_model(session, card, batch)
+    probs = calibrated(card, logits)
+    result = interpret(card, probs)
     attention_map = None
-    if split and status == "valid" and label != "Normal":
+    if explain and result["status"] == "valid" and result["label"] != NORMAL:
+        index = next(l["index"] for l in card["labels"] if l["name"] == result["label"])
         try:
-            with _lock:
-                cam = attention.grad_cam(split[1], features, index)
-            crop = ImageOps.fit(image, (224, 224), Image.Resampling.LANCZOS)
-            attention_map = {
-                "label": label,
-                "image": attention.overlay(crop, cam),
-                "note": t("attention_note", lang),
-            }
+            cam = attention.patch_map(patches[:, index], card["outputs"]["grid"])
+            if cam is not None:
+                attention_map = {
+                    "label": result["label"],
+                    "image": attention.overlay(model_view(image, card["input"]), cam),
+                    "note": t("attention_note", lang),
+                }
         except Exception:
             # The map is optional; the prediction stands without it.
             log.exception("Could not compute the attention map")
+    message = t(f"image_{result['status']}", lang)
+    note = None
+    if result["unassessed"] and result["status"] != "invalid":
+        signs = ", ".join(localize(KB["image_signs"][s]["description"], lang) for s in result["unassessed"])
+        note = t("image_unassessed", lang).format(signs=signs)
     return {
-        "class_id": class_id,
-        "label": label,
-        "confidence": confidence,
-        "status": status,
-        "message": t(f"image_{status}", lang),
-        "hint": uncertain_hint(scores[0], labels) if status == "uncertain" else None,
-        "top3": top_scores(scores[0], labels),
+        "class_id": None,
+        **result,
+        "message": message,
+        "unassessed_note": note,
         "attention": attention_map,
         "model_version": model_version,
         "quality": quality,
     }
-
-
-def top_scores(scores, labels, k=3):
-    """The k highest model scores, for transparency only; triage never reads them."""
-    return [
-        {"label": labels[i][1], "confidence": float(scores[i])}
-        for i in np.argsort(scores)[::-1][:k]
-    ]
-
-
-def uncertain_hint(scores, labels):
-    """A clear lean towards one sign in an uncertain image, or None.
-
-    The risk engine decides whether the sign matters; this only checks that the
-    lead is well above the junk-image baseline and that the photo does not look
-    like background.
-    """
-    first, second = np.argsort(scores)[::-1][:2]
-    if (
-        labels[first][1] in {"Normal", "Back Ground"}
-        or scores[first] < HINT_MIN
-        or scores[first] - scores[second] < HINT_MIN_MARGIN
-        or scores[11] > HINT_MAX_BACKGROUND
-    ):
-        return None
-    return {"label": labels[first][1], "confidence": float(scores[first])}
