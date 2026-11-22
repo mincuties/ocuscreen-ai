@@ -25,14 +25,12 @@ export function renderSymptoms(symptoms, container) {
   container.replaceChildren(fragment);
 }
 
-/** Model scores below this are close to the 12-class junk baseline; not worth showing. */
-export const OTHER_MIN = 0.15;
-/** Runner-up labels of a valid image, shown for transparency only. */
-export function otherPossibilities(image) {
-  if (image?.status !== 'valid' || !Array.isArray(image.top3)) return [];
-  return image.top3.slice(1).filter(item => item.label !== 'Back Ground' && item.confidence >= OTHER_MIN);
+/** Other signs the model found in a valid image besides the headline one; all of them feed the result. */
+export function otherFindings(image) {
+  if (image?.status !== 'valid' || !Array.isArray(image.findings)) return [];
+  return image.findings.filter(item => item.state === 'positive' && item.label !== image.label
+    && Number.isFinite(item.probability));
 }
-const percent = score => (score * 100).toFixed(1);
 
 /** Only accept the JPEG data URL the API builds, never another URL scheme. */
 export function attentionSource(image) {
@@ -44,8 +42,9 @@ export function renderResult({ image, risk }, { explain = false } = {}) {
   byId('level').textContent = t('priority', { label: risk.label });
   byId('level').className = 'badge ' + (['red', 'yellow', 'green'].includes(risk.level) ? risk.level : '');
   // An uncertain image has no label worth showing; its message asks for a retake.
-  byId('imageResult').textContent = image.status === 'valid' && Number.isFinite(image.confidence)
-    ? t('imageLabel', { label: image.label, score: percent(image.confidence) })
+  // Probabilities are calibrated to the training data, not to real use, so only names are shown.
+  byId('imageResult').textContent = image.status === 'valid' && image.label
+    ? (image.label === 'Normal' ? t('imageNormal') : t('imageLabel', { label: image.label }))
     : t('noImageLabel');
   const src = attentionSource(image);
   byId('attention').hidden = !explain;
@@ -53,12 +52,15 @@ export function renderResult({ image, risk }, { explain = false } = {}) {
   if (src) byId('attentionImage').src = src;
   else byId('attentionImage').removeAttribute('src');
   byId('attentionNote').textContent = src ? image.attention.note : t('attentionMissing');
-  const others = otherPossibilities(image);
+  const others = otherFindings(image);
+  byId('demoNote').hidden = image.demo !== true;
   byId('otherLabels').hidden = !others.length;
   byId('otherLabels').textContent = others.length ? t('otherLabels', {
-    items: others.map(item => `${item.label} ${percent(item.confidence)}%`).join(', '),
+    items: others.map(item => item.label).join(', '),
   }) : '';
   byId('imageMessage').textContent = image.message;
+  byId('unassessedNote').hidden = !image.unassessed_note;
+  byId('unassessedNote').textContent = image.unassessed_note || '';
   const advice = image.quality?.advice || [];
   byId('qualityAdvice').replaceChildren();
   advice.forEach(tip => textNode('li', tip, byId('qualityAdvice')));

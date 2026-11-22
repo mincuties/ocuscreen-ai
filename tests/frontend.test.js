@@ -53,13 +53,13 @@ test('the default crop is the centre square the server would take', () => {
 test('crops stay inside the photo and above the minimum size', () => {
   const base = defaultCrop(4000, 3000);
   assert.deepEqual(clampCrop({ ...base, x: -50, y: 9999 }), { ...base, x: 0, y: 0 });
-  assert.equal(clampCrop({ ...base, size: 10 }).size, 600); // 20% of the short side
+  assert.equal(clampCrop({ ...base, size: 10 }).size, 1500); // 50% of the short side
   assert.equal(clampCrop({ ...base, size: 99999 }).size, 3000);
   // Small photos: never below the server's 64 px minimum, never above the short side.
   assert.equal(clampCrop({ ...defaultCrop(100, 80), size: 1 }).size, 64);
   assert.equal(clampCrop({ ...defaultCrop(70, 50), size: 1 }).size, 50);
-  const small = resizeCrop(base, 1000);
-  assert.deepEqual([small.x, small.y, small.size], [1500, 1000, 1000]); // same centre
+  const small = resizeCrop(base, 1600);
+  assert.deepEqual([small.x, small.y, small.size], [1200, 700, 1600]); // same centre
   const corner = resizeCrop({ ...small, x: 3000, y: 2000 }, 2000);
   assert.deepEqual([corner.x, corner.y], [2000, 1000]); // pushed back inside
 });
@@ -92,14 +92,15 @@ test('Vietnamese symptom search ignores accents and preserves choices', async ()
   assert.equal(filterSymptoms({children: choices}, ''), 2);
 });
 
-test('other possibilities come only from a valid image, without background or weak scores', async () => {
-  const { otherPossibilities } = await import('../frontend/js/components.js');
-  const top3 = [{ label: 'Redness', confidence: 0.62 }, { label: 'Back Ground', confidence: 0.2 },
-    { label: 'Discharge', confidence: 0.16 }];
-  assert.deepEqual(otherPossibilities({ status: 'valid', top3 }).map(i => i.label), ['Discharge']);
-  assert.deepEqual(otherPossibilities({ status: 'uncertain', top3 }), []);
-  assert.deepEqual(otherPossibilities({ status: 'valid', top3: [top3[0], { label: 'Watery', confidence: 0.1 }] }), []);
-  assert.deepEqual(otherPossibilities({ status: 'invalid', top3: null }), []);
+test('other findings are the extra positive signs of a valid image', async () => {
+  const { otherFindings } = await import('../frontend/js/components.js');
+  const findings = [{ label: 'Redness', probability: 0.8, state: 'positive' },
+    { label: 'Discharge', probability: 0.6, state: 'positive' },
+    { label: 'Swelling', probability: 0.35, state: 'borderline' }];
+  assert.deepEqual(otherFindings({ status: 'valid', label: 'Redness', findings }).map(i => i.label), ['Discharge']);
+  assert.deepEqual(otherFindings({ status: 'uncertain', label: null, findings }), []);
+  assert.deepEqual(otherFindings({ status: 'valid', label: 'Normal', findings: [] }), []);
+  assert.deepEqual(otherFindings({ status: 'invalid', findings: null }), []);
 });
 
 test('attention maps are only taken from the JPEG data URL the API builds', async () => {

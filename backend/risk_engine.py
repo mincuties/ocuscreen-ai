@@ -82,8 +82,40 @@ def pre_upload_rules(lang=DEFAULT):
     ]
 
 
-def match(rule, selected, age_group, duration, sign, hint_label):
-    """Return (matched symptoms, matched image sign, via hint) or None."""
+def image_signs(prediction):
+    """Signs the image supports: every positive finding of a valid photo that the model
+    card allows into the triage (``triage``). Other positive findings are shown to the user
+    but never change the level; see display_only_signs.
+
+    A prediction without ``findings`` (a single-label result) counts its label.
+    Normal only stands alone; it never removes a sign and is never matched by a rule.
+    """
+    if prediction.get("status") != "valid":
+        return set()
+    findings = prediction.get("findings")
+    if findings is None:
+        found = {prediction.get("label")}
+    else:
+        positive = [f for f in findings if f.get("state") == "positive"]
+        found = {f["label"] for f in positive if f.get("triage")}
+        if not positive and prediction.get("label") == "Normal":
+            found = {"Normal"}
+    return found & KB["image_signs"].keys()
+
+
+def display_only_signs(prediction):
+    """Positive findings of a valid photo that the triage does not use, in model order."""
+    if prediction.get("status") != "valid":
+        return []
+    return [
+        f["label"]
+        for f in prediction.get("findings") or []
+        if f.get("state") == "positive" and not f.get("triage") and f["label"] in KB["image_signs"]
+    ]
+
+
+def match(rule, selected, age_group, duration, signs, hint_label):
+    """Return (matched symptoms, matched image signs, via hint) or None."""
     if not set(rule.get("all", [])) <= selected:
         return None
     if "any" in rule and not selected & set(rule["any"]):
@@ -92,17 +124,16 @@ def match(rule, selected, age_group, duration, sign, hint_label):
         return None
     if "duration" in rule and duration not in rule["duration"]:
         return None
-    image, via_hint = None, False
+    images, via_hint = [], False
     if "image" in rule:
-        if sign in rule["image"]:
-            image = sign
-        elif rule.get("hint_ok") and hint_label in rule["image"]:
-            image, via_hint = hint_label, True
-        else:
+        images = [s for s in rule["image"] if s in signs]
+        if not images and rule.get("hint_ok") and hint_label in rule["image"]:
+            images, via_hint = [hint_label], True
+        elif not images:
             return None
     # Name the symptoms that made an "any" rule fire; "all" ones are in its reason.
     named = selected & set(rule.get("any") or rule.get("all", []))
-    return sorted(named, key=list(SYMPTOMS).index), image, via_hint
+    return sorted(named, key=list(SYMPTOMS).index), images, via_hint
 
 
 def assess_risk(
@@ -128,13 +159,13 @@ def assess_risk(
     def describe(sign):
         return localize(KB["image_signs"][sign]["description"], lang)
 
-    sign = prediction["label"] if prediction["status"] == "valid" else None
-    sign = sign if sign in KB["image_signs"] else None
+    signs = image_signs(prediction)
     # An uncertain image can only count where a rule allows it (hint_ok).
-    hint_label = (prediction.get("hint") or {}).get("label") if not sign else None
+    hint = prediction.get("hint") or {}
+    hint_label = hint.get("label") if not signs and hint.get("triage", True) else None
     matched = []
     for rule in RULES:
-        found = match(rule, selected, age_group, duration, sign, hint_label)
+        found = match(rule, selected, age_group, duration, signs, hint_label)
         if found:
             matched.append((rule, *found))
 
@@ -143,11 +174,11 @@ def assess_risk(
     reasons = [
         localize(rule["reason"], lang).format(
             symptoms=", ".join(label(s) for s in symptoms),
-            sign=describe(image) if image else "",
+            sign=", ".join(describe(image) for image in images),
         )
-        for rule, symptoms, image, _ in top
+        for rule, symptoms, images, _ in top
     ]
-    used_hint = next((image for _, _, image, via in top if via), None)
+    used_hint = next((images[0] for _, _, images, via in top if via), None)
     if used_hint:
         reasons.append(t("reason_uncertain_hint", lang).format(sign=describe(used_hint)))
     # The most urgent destination among the rules at the top level.
@@ -158,7 +189,7 @@ def assess_risk(
     if level is None:
         # Context items (e.g. contact lenses) alone are not symptoms.
         symptoms_only = selected - CONTEXT_SYMPTOMS
-        if symptoms_only or sign:
+        if symptoms_only or signs or display_only_signs(prediction):
             # Green needs the whole checklist reviewed and a known age group.
             if confirmed and age_group != "unknown":
                 level, destination = "green", "self_care"
@@ -172,7 +203,12 @@ def assess_risk(
                     )
             else:
                 rules = ["needs_confirmation"]
-    if level and not sign and not used_hint:
+    shown_only = display_only_signs(prediction)
+    if shown_only:
+        reasons.append(
+            t("reason_image_display_only", lang).format(sign=", ".join(describe(s) for s in shown_only))
+        )
+    elif level and not signs and not used_hint:
         reasons.append(t("reason_image_not_used", lang))
     first_aid = [
         t(f"first_aid_{key}", lang)
@@ -182,15 +218,15 @@ def assess_risk(
     candidates = []
     for disease, symptoms in DISEASES:
         matches = sorted(selected & symptoms)
-        image_match = sign in disease["image_signs"]
+        image_match = sorted(signs & set(disease["image_signs"]), key=list(KB["image_signs"]).index)
         if not matches and not image_match:
             continue
         candidates.append(
             {
                 "name": localize(disease["name"], lang),
-                "match_points": len(matches) + 2 * int(image_match),
+                "match_points": len(matches) + 2 * len(image_match),
                 "matched_symptoms": [label(s) for s in matches],
-                "matched_image_sign": sign if image_match else None,
+                "matched_image_sign": ", ".join(image_match) or None,
                 "note": localize(disease["note"], lang),
             }
         )
@@ -213,7 +249,7 @@ def assess_risk(
         "warnings": [t("warning_steroids", lang)] if level else [],
         "rules": rules,
         "candidates": candidates[:3],
-        "image_used": sign is not None,
+        "image_used": bool(signs),
         "knowledge_version": KB["version"],
         "disclaimer": localize(KB["disclaimer"], lang),
     }

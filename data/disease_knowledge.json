@@ -1,5 +1,5 @@
 {
-  "version": "0.2.0-prototype",
+  "version": "0.3.0-prototype",
   "disclaimer": {
     "en": "Experimental screening aid, not clinically validated. Priority levels and match points are not a diagnosis or a probability of disease.",
     "vi": "Bản thử nghiệm hỗ trợ sàng lọc, chưa được thẩm định lâm sàng. Mức ưu tiên và điểm khớp không phải chẩn đoán hay xác suất mắc bệnh."
@@ -302,6 +302,14 @@
       "description": {
         "en": "Inner eyelid looks pale; a photo cannot confirm anaemia",
         "vi": "Mặt trong mí mắt có vẻ nhợt, ảnh không đủ xác định thiếu máu"
+      },
+      "priority": "medium"
+    },
+    "Cataract": {
+      "class_id": 12,
+      "description": {
+        "en": "Cloudy lens (possible cataract)",
+        "vi": "Thủy tinh thể đục (có thể là đục thủy tinh thể)"
       },
       "priority": "medium"
     }
@@ -689,7 +697,8 @@
         "Swelling",
         "Discharge",
         "Watery",
-        "Eyelid Abnormal"
+        "Eyelid Abnormal",
+        "Cataract"
       ],
       "reason": {
         "en": "The photo suggests: {sign}",
@@ -1010,6 +1019,23 @@
         "en": "Only blood tests and clinical assessment can confirm anaemia.",
         "vi": "Chỉ xét nghiệm và đánh giá lâm sàng mới xác định thiếu máu."
       }
+    },
+    {
+      "id": "pattern_10",
+      "name": {
+        "en": "Possible cataract needing an eye exam",
+        "vi": "Có thể đục thủy tinh thể, cần khám mắt"
+      },
+      "image_signs": [
+        "Cataract"
+      ],
+      "symptoms": [
+        "blurred"
+      ],
+      "note": {
+        "en": "A cloudy lens in a photo needs an eye examination to confirm.",
+        "vi": "Thủy tinh thể đục trên ảnh cần được khám mắt để xác nhận."
+      }
     }
   ],
   "sources": [
@@ -1043,7 +1069,7 @@
     }
   ],
   "rule_notes": {
-    "en": "Triage rules are transparent engineering choices drawn from the sources below; they have not been reviewed by an eye specialist and must be before any real use. The highest matching level wins; among the rules at that level, the most urgent destination is used. A green result needs a known age group and the user to confirm they reviewed the whole symptom list, because an unchecked item is not evidence of absence. Normal never lowers a level. Pattern ranking (2 points per image match + 1 point per symptom) and the 0.60 image threshold are uncalibrated.",
-    "vi": "Các luật phân tầng là lựa chọn kỹ thuật minh bạch dựa trên các nguồn bên dưới; chưa được bác sĩ chuyên khoa mắt duyệt và phải được duyệt trước khi dùng thật. Mức cao nhất trong các luật khớp được chọn; trong các luật ở mức đó, nơi khám gấp nhất được dùng. Kết quả xanh cần biết nhóm tuổi và người dùng xác nhận đã xem hết danh sách triệu chứng, vì bỏ trống một mục không phải bằng chứng là không có. Normal không bao giờ hạ mức. Cách xếp nhóm biểu hiện (2 điểm mỗi dấu hiệu ảnh + 1 điểm mỗi triệu chứng) và ngưỡng ảnh 0.60 chưa được hiệu chuẩn."
+    "en": "Triage rules are transparent engineering choices drawn from the sources below; they have not been reviewed by an eye specialist and must be before any real use. The highest matching level wins; among the rules at that level, the most urgent destination is used. A green result needs a known age group and the user to confirm they reviewed the whole symptom list, because an unchecked item is not evidence of absence. Normal never lowers a level. Pattern ranking (2 points per image match + 1 point per symptom) and the per-sign image thresholds in model/model_card.json come from cross-validation on a small web dataset and are not clinically calibrated.",
+    "vi": "Các luật phân tầng là lựa chọn kỹ thuật minh bạch dựa trên các nguồn bên dưới; chưa được bác sĩ chuyên khoa mắt duyệt và phải được duyệt trước khi dùng thật. Mức cao nhất trong các luật khớp được chọn; trong các luật ở mức đó, nơi khám gấp nhất được dùng. Kết quả xanh cần biết nhóm tuổi và người dùng xác nhận đã xem hết danh sách triệu chứng, vì bỏ trống một mục không phải bằng chứng là không có. Normal không bao giờ hạ mức. Cách xếp nhóm biểu hiện (2 điểm mỗi dấu hiệu ảnh + 1 điểm mỗi triệu chứng) và ngưỡng ảnh của từng dấu hiệu trong model/model_card.json được chọn bằng kiểm định chéo trên bộ ảnh web nhỏ, chưa được hiệu chuẩn lâm sàng."
   }
 }

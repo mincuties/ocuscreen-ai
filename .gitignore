@@ -16,7 +16,12 @@ node_modules/
 # Large model (>100MB, above GitHub's limit) - download from Drive per README
 model/*.h5
 model/*.keras
+model/*.onnx
+model/preprocess_golden.npz
 *.tflite
+
+# Training outputs (embeddings, reports); the data stays outside the repo
+training/out/
 
 # Eye photos / datasets / user uploads - NEVER commit
 uploads/

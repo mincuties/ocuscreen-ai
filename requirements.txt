@@ -1,7 +1,5 @@
-tensorflow-cpu==2.15.1
-keras==2.15.0
+onnxruntime==1.28.0
 numpy==1.26.4
-h5py==3.12.1
 Pillow==13.0.0
 fastapi==0.162.6
 starlette==1.10.0

@@ -1,13 +1,13 @@
-"""Grad-CAM map of where the image model looked, for a valid, non-Normal result.
+"""Map of which image patches pushed the score of the chosen label up.
 
-The map shows which part of the photo drove the model's score for the chosen label.
-It is not the location of a lesion and is never used by the triage.
+The model's head is linear on [CLS token, mean of patch tokens], so the mean-patch
+part of a label's logit splits exactly into one number per patch; the ONNX model
+returns them as `patch_logits` (see training/export.py). The map shows the positive
+part of those numbers on the model's patch grid.
 
-Grad-CAM, not Grad-CAM++: with a GlobalAveragePooling -> Dense head the gradient is
-the same at every position, so Grad-CAM++ keeps only the channels with a positive
-Dense weight and gives almost the same map for every class (measured on the current
-model: maps of different classes correlated at 1.0). Grad-CAM keeps the sign of every
-weight, which for this head is exactly the class activation map.
+Limits: it explains only the mean-patch part of the logit, not the CLS part, and each
+patch token already mixes information from the whole photo. It is not the location of
+a lesion and is never used by the triage.
 """
 
 import base64
@@ -19,78 +19,17 @@ from PIL import Image
 OVERLAY_ALPHA = 0.6
 
 
-def split_model(model):
-    """(body layers up to the last 4D feature map, head layers) or ValueError.
+def patch_map(contributions, grid):
+    """Map in [0, 1] of shape (grid, grid), or None when patches did not support the label.
 
-    The model must be a plain chain of layers (as the current Rescaling ->
-    EfficientNetV2-S -> GlobalAveragePooling -> Dropout -> Dense model is) ending in a
-    softmax Dense layer. The chain is checked against the model's own output.
+    Scaled to its own peak, so colours compare areas within one photo, not photos. When
+    the patches together pull the label's score down, there is nothing honest to show.
     """
-    import tensorflow as tf
-
-    layers = [
-        layer
-        for layer in model.layers
-        if not isinstance(layer, tf.keras.layers.InputLayer)
-    ]
-    feature_index = max(
-        (i for i, layer in enumerate(layers) if len(layer.output.shape) == 4),
-        default=None,
-    )
-    last = layers[-1] if layers else None
-    if (
-        feature_index is None
-        or not isinstance(last, tf.keras.layers.Dense)
-        or last.activation is not tf.keras.activations.softmax
-    ):
-        raise ValueError("Attention maps need a 4D feature map and a softmax Dense head.")
-    split = layers[: feature_index + 1], layers[feature_index + 1 :]
-    probe = np.random.default_rng(0).uniform(-1, 1, (1, *model.input_shape[1:]))
-    probe = probe.astype(np.float32)
-    _, chained = forward(split, probe)
-    if not np.allclose(chained, model(probe, training=False), atol=1e-5):
-        raise ValueError("The model is not a plain chain of layers.")
-    return split
-
-
-def forward(split, batch):
-    """(feature map, class probabilities) in one pass through the chain."""
-    x = batch
-    for layer in split[0]:
-        x = layer(x, training=False)
-    features, y = x, x
-    for layer in split[1]:
-        y = layer(y, training=False)
-    return features, y
-
-
-def logits(head, features):
-    """Pre-softmax scores: softmax saturates, which flattens the gradients."""
-    import tensorflow as tf
-
-    x = features
-    for layer in head[:-1]:
-        x = layer(x, training=False)
-    return tf.matmul(x, head[-1].kernel) + head[-1].bias
-
-
-def grad_cam(head, features, class_index):
-    """Map in [0, 1] with the feature map's height and width.
-
-    Scaled to its own peak, so colours compare areas within one photo, not photos.
-    """
-    import tensorflow as tf
-
-    features = tf.convert_to_tensor(features)
-    with tf.GradientTape() as tape:
-        tape.watch(features)
-        score = logits(head, features)[0, class_index]
-    grads = tape.gradient(score, features)[0].numpy().astype(np.float64)
-    maps = features[0].numpy().astype(np.float64)
-    weights = grads.mean(axis=(0, 1))
-    cam = np.maximum((maps * weights).sum(axis=2), 0)
-    peak = cam.max()
-    return cam / peak if peak > 0 else cam
+    c = np.asarray(contributions, dtype=np.float64)
+    if c.shape != (grid * grid,) or not np.isfinite(c).all() or c.sum() <= 0:
+        return None
+    cam = np.maximum(c, 0).reshape(grid, grid)
+    return cam / cam.max()
 
 
 def colorize(cam):

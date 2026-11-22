@@ -15,7 +15,7 @@ def prediction(label="Normal", status="valid"):
     return {
         "label": label,
         "status": status,
-        "class_id": ip.EXPECTED.index(label),
+        "class_id": None,
         "confidence": 0.9,
         "message": "Test",
     }
@@ -93,7 +93,7 @@ def test_first_aid_and_steroid_warning():
     assert "corticosteroids" in chemical["warnings"][0]
     green = assess_risk(prediction(), [], age_group="adult", confirmed=True)
     assert green["warnings"] and not green["first_aid"]
-    unknown = assess_risk(prediction("Back Ground", "invalid"), [], confirmed=True)
+    unknown = assess_risk(prediction(None, "invalid"), [], confirmed=True)
     assert unknown["level"] is None and unknown["warnings"] == []
 
 
@@ -105,7 +105,7 @@ def test_reasons_name_the_symptoms_and_signs():
     risk = assess_risk(prediction("Redness"), ["contacts"], "vi")
     assert risk["reasons"][0] == "Đang dùng kính áp tròng; ảnh gợi ý: Đỏ mắt"
     mild = assess_risk(
-        prediction("Back Ground", "invalid"), ["itch"], age_group="adult", confirmed=True
+        prediction(None, "invalid"), ["itch"], age_group="adult", confirmed=True
     )
     assert mild["reasons"][0] == "Only mild symptoms: Itchy eyes"
     assert "could not be used" in mild["reasons"][-1]
@@ -148,33 +148,20 @@ def test_duplicate_rule_ids_fail_at_startup():
         engine.check_rules([rule, rule])
 
 
-def scored_model(**probs):
-    """Fake model returning the given class probabilities, the rest spread evenly."""
-    vector = np.zeros(12)
-    for name, value in probs.items():
-        vector[ip.EXPECTED.index(name.replace("_", " "))] = value
-    rest = [i for i in range(12) if vector[i] == 0]
-    vector[rest] = (1 - vector.sum()) / len(rest)
-
-    class Model:
-        def __call__(self, batch, training=False):
-            return vector[None, :]
-
-    return Model()
-
-
 @pytest.mark.parametrize(
     "probs,hint",
     [
-        ({"Cornea_Abnormal": 0.45}, "Cornea Abnormal"),
-        ({"Cornea_Abnormal": 0.25}, None),  # too weak
-        ({"Cornea_Abnormal": 0.40, "Redness": 0.35}, None),  # no clear lead
-        ({"Cornea_Abnormal": 0.40, "Back_Ground": 0.15}, None),  # looks like a non-eye photo
-        ({"Cornea_Abnormal": 0.70}, None),  # valid, not a hint
+        ({"Swelling": 0.45}, "Swelling"),
+        ({"Swelling": 0.25}, None),  # below the hint threshold
+        ({"Swelling": 0.45, "Redness": 0.40}, None),  # no clear lead
+        ({"Swelling": 0.45, "Redness": 0.30}, "Swelling"),
+        ({"Swelling": 0.70}, None),  # valid, not a hint
+        ({"Cataract": 0.45}, None),  # no hint threshold for this label
+        ({"Swelling": 0.45, "eye_gate": 0.1}, None),  # not an eye photo
     ],
 )
-def test_uncertain_hint(monkeypatch, probs, hint):
-    monkeypatch.setattr(ip, "load_artifacts", lambda: (scored_model(**probs), ip.read_labels()))
+def test_uncertain_hint(fake_model, probs, hint):
+    fake_model(probs)
     result = ip.predict_image(photo())
     assert (result["hint"] or {}).get("label") == hint
 
@@ -214,19 +201,103 @@ def test_file_sha256(tmp_path):
     )
 
 
-def test_labels():
-    labels = ip.read_labels()
-    assert labels[10] == (10, "Pale Inner Eyelid")
-    assert labels[11] == (11, "Back Ground")
+def test_card_is_checked_against_the_onnx_file(fake_model):
+    fake_model()
+    session, card = ip.load_artifacts()
+    assert [label["name"] for label in card["labels"]][-1] == "eye_gate"
+    assert ip.model_version == card["sha256"]
+
+
+def _bad_sha(card):
+    card["sha256"] = "0" * 64
+
+
+def _unknown_label(card):
+    card["labels"][0]["name"] = "Pink Eye"
+
+
+def _no_threshold(card):
+    del card["labels"][1]["threshold"]
+
+
+def _hint_above_threshold(card):
+    card["labels"][0]["hint_threshold"] = 0.9
+
+
+def _published_gate(card):
+    card["labels"][-1]["published"] = True
+
+
+def _wrong_size(card):
+    card["input"]["size"] = 256
+
+
+def _bad_resize(card):
+    card["input"]["resize"] = "stretch"
+
+
+def _missing_label(card):
+    card["labels"].pop(0)
+    for i, label in enumerate(card["labels"]):
+        label["index"] = i
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [_bad_sha, _unknown_label, _no_threshold, _hint_above_threshold, _published_gate,
+     _wrong_size, _bad_resize, _missing_label],
+)
+def test_bad_model_card_refuses_to_load(fake_model, edit):
+    fake_model(card_edit=edit)
+    with pytest.raises(ip.ModelUnavailable):
+        ip.load_artifacts()
+
+
+def test_missing_model_files_refuse_to_load(tmp_path, monkeypatch):
+    monkeypatch.setattr(ip, "MODEL_DIR", tmp_path)
+    monkeypatch.setattr(ip, "_session", None)
+    with pytest.raises(ip.ModelUnavailable):
+        ip.load_artifacts()
 
 
 def test_preprocess():
     a = ip.preprocess(photo())
-    assert a.shape == (1, 224, 224, 3) and a.dtype == np.float32
-    assert np.all(a == 1)
-    assert np.all(ip.preprocess(photo("black")) == -1)
+    assert a.shape == (1, 3, 224, 224) and a.dtype == np.float32
+    mean, std = np.array(ip.DEFAULT_INPUT["mean"]), np.array(ip.DEFAULT_INPUT["std"])
+    # Channels first: every pixel of channel c is (1 - mean[c]) / std[c] for white.
+    assert np.allclose(a[0, :, 0, 0], (1 - mean) / std, atol=1e-6)
+    assert np.allclose(a[0], ((1 - mean) / std)[:, None, None], atol=1e-6)
+    assert np.allclose(ip.preprocess(photo("black"))[0, :, 5, 5], -mean / std, atol=1e-6)
+    red = io.BytesIO()
+    Image.new("RGB", (300, 240), (255, 0, 0)).save(red, format="PNG")
+    channels = ip.preprocess(red.getvalue())[0, :, 0, 0]
+    assert channels[0] > 0 > channels[1] and channels[2] < 0
     with pytest.raises(ip.InvalidImage):
         ip.preprocess(b"not an image")
+
+
+def test_letterbox_keeps_the_whole_photo():
+    image = Image.new("RGB", (400, 200), "white")
+    spec = {**ip.DEFAULT_INPUT, "resize": "letterbox"}
+    a = ip.to_batch(image, spec)
+    mean, std = np.array(spec["mean"]), np.array(spec["std"])
+    assert a.shape == (1, 3, 224, 224)
+    # The padding (top row) is the mean colour, i.e. close to 0 after normalizing.
+    assert np.allclose(a[0, :, 0, 112], 0, atol=0.02)
+    assert np.allclose(a[0, :, 112, 112], (1 - mean) / std, atol=1e-5)
+
+
+def test_real_model_matches_the_training_preprocessing():
+    """Only with a real model in model/: same tensor and logits as at export time."""
+    golden = ip.MODEL_DIR / "preprocess_golden.npz"
+    if not golden.is_file() or not (ip.MODEL_DIR / ip.CARD_NAME).is_file():
+        pytest.skip("no real model in model/")
+    data = np.load(golden)
+    session, card = ip.load_artifacts()
+    batch = ip.to_batch(ip.decode(data["image_bytes"].tobytes()), card["input"])
+    assert np.allclose(batch, data["tensor"], atol=1e-5)
+    logits, _ = ip.run_model(session, card, batch)
+    assert np.allclose(logits, data["logits"][0], atol=1e-3)
 
 
 def jpeg(width, height):
@@ -237,7 +308,7 @@ def jpeg(width, height):
 
 def test_preprocess_accepts_default_phone_photo():
     # 4032x3024 is the default 12 MP photo of many phones (12,192,768 pixels).
-    assert ip.preprocess(jpeg(4032, 3024)).shape == (1, 224, 224, 3)
+    assert ip.preprocess(jpeg(4032, 3024)).shape == (1, 3, 224, 224)
 
 
 def invalid_key(data):
@@ -298,40 +369,76 @@ def test_glare_spot_is_flagged_only_when_large():
     assert flags(small) == [] and flags(large) == ["glare"]
 
 
-def test_quality_flags_never_change_the_result(monkeypatch):
-    monkeypatch.setattr(ip, "load_artifacts", lambda: (scored_model(Redness=0.9), ip.read_labels()))
+def test_quality_flags_never_change_the_result(fake_model):
+    fake_model({"Redness": 0.9})
     result = ip.predict_image(photo("black"), "vi")
     assert result["status"] == "valid" and result["label"] == "Redness"
     assert result["quality"]["flags"] == ["blurry", "dark"]
     assert result["quality"]["advice"][1].startswith("Ảnh có vẻ quá tối")
 
 
-def test_top3_is_ordered_and_does_not_affect_triage(monkeypatch):
-    model = scored_model(Redness=0.62, Discharge=0.2, Watery=0.1)
-    monkeypatch.setattr(ip, "load_artifacts", lambda: (model, ip.read_labels()))
+def test_top3_is_ordered_and_does_not_affect_triage(fake_model):
+    fake_model({"Redness": 0.62, "Discharge": 0.2, "Swelling": 0.1, "Yellow Eye": 0.9})
     result = ip.predict_image(photo())
-    assert [t["label"] for t in result["top3"]] == ["Redness", "Discharge", "Watery"]
-    assert result["top3"][1]["confidence"] == pytest.approx(0.2)
+    # Unpublished labels (Yellow Eye) are never shown.
+    assert [t["label"] for t in result["top3"]] == ["Redness", "Discharge", "Swelling"]
+    assert result["top3"][1]["confidence"] == pytest.approx(0.2, abs=1e-4)
     with_top3 = assess_risk(result, [], age_group="adult")
     without = assess_risk({**result, "top3": None}, [], age_group="adult")
     assert with_top3 == without
 
 
-def test_predict_background(monkeypatch):
-    class Model:
-        def __call__(self, batch, training=False):
-            a = np.zeros((1, 12))
-            a[0, 11] = 1
-            return a
+def test_several_signs_are_found_and_all_reach_the_triage(fake_model):
+    fake_model({"Redness": 0.8, "Discharge": 0.6, "Swelling": 0.35})
+    result = ip.predict_image(photo())
+    assert result["status"] == "valid" and result["label"] == "Redness"
+    assert result["confidence"] == pytest.approx(0.8, abs=1e-4)
+    states = {f["label"]: f["state"] for f in result["findings"]}
+    assert states == {"Redness": "positive", "Discharge": "positive", "Swelling": "borderline"}
+    risk = assess_risk(result, [], age_group="adult")
+    assert risk["level"] == "yellow" and risk["image_used"]
+    assert "Eye redness" in risk["reasons"][0] and "discharge" in risk["reasons"][0].lower()
+    # A borderline sign of a valid photo is not used by the triage.
+    assert "swelling" not in risk["reasons"][0].lower()
 
-    monkeypatch.setattr(ip, "load_artifacts", lambda: (Model(), ip.read_labels()))
-    assert ip.predict_image(photo())["status"] == "invalid"
+
+def test_unassessed_signs_are_listed_and_block_a_normal_reading(fake_model):
+    fake_model({"Normal": 0.95})
+    result = ip.predict_image(photo())
+    assert result["status"] == "valid" and result["label"] == "Normal"
+    assert "Yellow Eye" in result["unassessed"] and "Cornea Abnormal" in result["unassessed"]
+    assert "Redness" not in result["unassessed"]
+    assert "Yellowish eye" in result["unassessed_note"] or "yellow" in result["unassessed_note"].lower()
+
+
+def test_unpublished_normal_never_reads_as_normal(fake_model):
+    def hide_normal(card):
+        next(l for l in card["labels"] if l["name"] == "Normal")["published"] = False
+
+    fake_model({"Normal": 0.99}, card_edit=hide_normal)
+    result = ip.predict_image(photo())
+    assert result["status"] == "uncertain" and result["label"] is None
+    assert "Normal" not in result["unassessed"]
+
+
+def test_low_normal_and_no_sign_is_uncertain(fake_model):
+    fake_model({"Normal": 0.5})
+    result = ip.predict_image(photo())
+    assert result["status"] == "uncertain" and result["findings"] == []
+
+
+def test_predict_not_an_eye(fake_model):
+    fake_model({"eye_gate": 0.05, "Redness": 0.99})
+    result = ip.predict_image(photo())
+    assert result["status"] == "invalid" and result["label"] is None
+    assert result["findings"] == [] and result["top3"] is None
+    assert assess_risk(result, [], confirmed=True)["image_used"] is False
 
 
 def test_routes(client):
     assert client.get("/").status_code == 200
     assert len(client.get("/api/symptoms").json()["symptoms"]) == 29
-    assert client.get("/model/labels.txt").status_code == 404
+    assert client.get("/model/model_card.json").status_code == 404
     r = client.post(
         "/api/screen",
         files={"image": ("eye.png", photo(), "image/png")},
@@ -451,12 +558,29 @@ def test_limits(client):
     api.app.state.busy = False
 
 
-def test_inference_failure_is_model_unavailable(monkeypatch):
-    class BrokenModel:
-        def __call__(self, batch, training=False):
+def test_inference_failure_is_model_unavailable(fake_model, monkeypatch):
+    fake_model()
+    session, card = ip.load_artifacts()
+
+    class Broken:
+        def run(self, *args, **kwargs):
             raise RuntimeError("device unavailable")
 
-    monkeypatch.setattr(ip, "load_artifacts", lambda: (BrokenModel(), ip.read_labels()))
+    monkeypatch.setattr(ip, "load_artifacts", lambda: (Broken(), card))
+    with pytest.raises(ip.ModelUnavailable):
+        ip.predict_image(photo())
+
+
+def test_non_finite_output_is_model_unavailable(fake_model, monkeypatch):
+    fake_model()
+    session, card = ip.load_artifacts()
+
+    class NaN:
+        def run(self, *args, **kwargs):
+            n = len(card["labels"])
+            return np.full((1, n), np.nan), np.zeros((1, 256, n))
+
+    monkeypatch.setattr(ip, "load_artifacts", lambda: (NaN(), card))
     with pytest.raises(ip.ModelUnavailable):
         ip.predict_image(photo())
 
@@ -533,8 +657,8 @@ def test_knowledge_base_has_both_languages():
                 yield from texts(value)
 
     pairs = list(texts(api.KB))
-    # 29 symptoms + 11 image signs + 29 rules + 9 patterns x 2 + 4 sources + 2
-    assert len(pairs) == 93
+    # 29 symptoms + 12 image signs + 29 rules + 10 patterns x 2 + 4 sources + 2
+    assert len(pairs) == 96
     assert all(p["en"].strip() and p["vi"].strip() for p in pairs)
 
 
@@ -548,7 +672,7 @@ def test_risk_language_defaults_to_english():
     assert "Dấu hiệu nguy hiểm: Giảm / mất thị lực đột ngột" in vi["reasons"]
     assert en["candidates"][0]["name"] == "Yellow eyes needing a general check-up"
     assert vi["candidates"][0]["name"] == "Vàng mắt cần kiểm tra toàn thân"
-    assert assess_risk(prediction("Back Ground", "invalid"), [])["label"] == "Not assessed"
+    assert assess_risk(prediction(None, "invalid"), [])["label"] == "Not assessed"
 
 
 def test_symptoms_endpoint_language(client):
@@ -580,13 +704,95 @@ def test_screen_errors_follow_language(client, monkeypatch):
     assert r.json()["detail"] == "symptoms must be a JSON list string."
 
 
-def test_predict_image_message_language(monkeypatch):
-    class Model:
-        def __call__(self, batch, training=False):
-            a = np.zeros((1, 12))
-            a[0, 1] = 1
-            return a
-
-    monkeypatch.setattr(ip, "load_artifacts", lambda: (Model(), ip.read_labels()))
+def test_predict_image_message_language(fake_model):
+    fake_model({"Redness": 0.9})
     assert ip.predict_image(photo())["message"].startswith("Image analyzed.")
     assert ip.predict_image(photo(), "vi")["message"].startswith("Đã phân tích ảnh.")
+
+
+def test_cataract_sign_is_never_green():
+    risk = assess_risk(prediction("Cataract"), ["itch"], age_group="adult", confirmed=True)
+    assert risk["level"] == "yellow" and risk["destination"] == "eye_doctor"
+
+
+def multi(*labels, triage=True):
+    pred = prediction(labels[0])
+    pred["findings"] = [
+        {"label": label, "probability": 0.8, "threshold": 0.5, "state": "positive", "triage": triage}
+        for label in labels
+    ]
+    return pred
+
+
+def test_any_positive_sign_can_fire_a_rule():
+    # Swelling is listed first, but the contact-lens rule needs Discharge.
+    risk = assess_risk(multi("Swelling", "Discharge"), ["contacts"])
+    assert risk["level"] == "red" and "contacts_image" in risk["rules"]
+    assert risk["candidates"][0]["match_points"] >= 2
+
+
+def test_normal_with_findings_is_ignored_and_never_lowers():
+    pred = multi("Redness")
+    pred["label"] = "Normal"
+    assert assess_risk(pred, ["contacts"])["level"] == "red"
+
+
+def test_display_only_sign_never_raises_the_level():
+    # Discharge with contact lenses is red when the card trusts it for triage...
+    assert assess_risk(multi("Discharge"), ["contacts"])["level"] == "red"
+    # ...but a display-only Discharge leaves only the symptom-based result.
+    risk = assess_risk(multi("Discharge", triage=False), ["contacts"], age_group="adult", confirmed=True)
+    assert risk["level"] == "green" and "contacts_image" not in risk["rules"]
+    assert any("Discharge" in r or "discharge" in r.lower() for r in risk["reasons"])
+    assert risk["image_used"] is False
+    # Infants: a display-only sign must not trigger the emergency rule.
+    assert assess_risk(multi("Swelling", triage=False), [], age_group="infant")["level"] != "red"
+
+
+def test_display_only_sign_alone_still_needs_confirmation():
+    risk = assess_risk(multi("Swelling", triage=False), [])
+    assert risk["level"] is None and risk["rules"] == ["needs_confirmation"]
+
+
+def test_display_only_hint_is_not_used():
+    pred = prediction("Swelling")
+    pred.update(status="uncertain", label=None, findings=[], hint={"label": "Swelling", "confidence": 0.4, "triage": False})
+    assert "infant_image" not in assess_risk(pred, [], age_group="infant")["rules"]
+    pred["hint"]["triage"] = True
+    assert "infant_image" in assess_risk(pred, [], age_group="infant")["rules"]
+
+
+def test_predictor_marks_display_only_findings(fake_model):
+    fake_model({"Watery": 0.8, "Redness": 0.8})
+    result = ip.predict_image(photo())
+    triage = {f["label"]: f["triage"] for f in result["findings"]}
+    assert triage == {"Watery": False, "Redness": True}
+    risk = assess_risk(result, [], age_group="adult", confirmed=True)
+    assert "image_sign" in risk["rules"]
+
+
+def test_card_rejects_triage_on_hidden_label(fake_model):
+    def bad(card):
+        next(l for l in card["labels"] if l["name"] == "Yellow Eye")["triage"] = True
+
+    fake_model(card_edit=bad)
+    with pytest.raises(ValueError):
+        ip.read_card()
+
+
+def test_demo_flag_is_passed_through_and_validated(fake_model):
+    fake_model({"Redness": 0.8})
+    assert ip.predict_image(photo())["demo"] is False
+
+    def demo(card):
+        card["demo"] = True
+
+    fake_model({"Redness": 0.8}, card_edit=demo)
+    assert ip.predict_image(photo())["demo"] is True
+
+    def bad(card):
+        card["demo"] = "yes"
+
+    fake_model(card_edit=bad)
+    with pytest.raises(ValueError):
+        ip.read_card()

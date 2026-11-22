@@ -1,11 +1,8 @@
 FROM python:3.11-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    CUDA_VISIBLE_DEVICES=-1 \
-    TF_NUM_INTRAOP_THREADS=2 \
-    TF_NUM_INTEROP_THREADS=1 \
+    ORT_NUM_THREADS=2 \
     OMP_NUM_THREADS=2 \
-    TF_CPP_MIN_LOG_LEVEL=2 \
     PORT=7860
 RUN useradd --create-home --uid 1000 appuser
 WORKDIR /app
@@ -15,9 +12,9 @@ COPY --chown=appuser:appuser backend ./backend
 COPY --chown=appuser:appuser data ./data
 COPY --chown=appuser:appuser frontend ./frontend
 COPY --chown=appuser:appuser model ./model
-# model/ also holds labels.txt, so COPY succeeds without the weights; fail the build instead
-# of shipping an image that answers 503 forever.
-RUN test -s model/keras_model.h5 || { echo "model/keras_model.h5 is missing; download it as described in README.md" >&2; exit 1; }
+# COPY succeeds with an empty model/ folder; fail the build instead of shipping an image
+# that answers 503 forever.
+RUN test -s model/model_card.json && test -s model/ocuscreen.onnx || { echo "model/ocuscreen.onnx or model/model_card.json is missing; see README.md" >&2; exit 1; }
 USER appuser
 EXPOSE 7860
 HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \

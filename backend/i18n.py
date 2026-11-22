@@ -67,9 +67,9 @@ MESSAGES = {
         "vi": "Không đọc được ảnh. Hãy chọn ảnh mắt rõ nét khác.",
     },
     "image_invalid": {
-        "en": "The image was recognized as Back Ground. Retake a close-up of the eye "
+        "en": "This does not look like a photo of an eye. Retake a close-up of the eye "
         "in good light, with the eye centered.",
-        "vi": "Ảnh được nhận diện là Back Ground. Hãy chụp lại cận cảnh mắt, đủ sáng, "
+        "vi": "Ảnh này có vẻ không phải ảnh chụp mắt. Hãy chụp lại cận cảnh mắt, đủ sáng, "
         "mắt nằm giữa ảnh.",
     },
     "image_uncertain": {
@@ -82,11 +82,15 @@ MESSAGES = {
         "en": "Image analyzed. The model score is not a probability of disease.",
         "vi": "Đã phân tích ảnh. Điểm model không phải xác suất mắc bệnh.",
     },
+    "image_unassessed": {
+        "en": "This model does not check photos for: {signs}. Their absence here is not a normal result.",
+        "vi": "Model này chưa kiểm tra ảnh về: {signs}. Không thấy ở đây không có nghĩa là bình thường.",
+    },
     "attention_note": {
-        "en": "Coloured areas show where the model looked when it chose this label "
+        "en": "Coloured areas show which parts of the photo raised the score of this label "
         "(red = most, compared within this photo only). It is not the location of a "
         "lesion and is not a diagnosis.",
-        "vi": "Vùng tô màu cho thấy nơi model chú ý khi chọn nhãn này (đỏ là chú ý "
+        "vi": "Vùng tô màu cho thấy phần nào của ảnh làm tăng điểm của nhãn này (đỏ là "
         "nhiều nhất, chỉ so sánh trong ảnh này). Đây không phải vị trí tổn thương và "
         "không phải chẩn đoán.",
     },
@@ -206,6 +210,13 @@ MESSAGES = {
     "triage_field_invalid": {
         "en": "Invalid age group, duration or true/false value.",
         "vi": "Nhóm tuổi, thời gian kéo dài hoặc giá trị true/false không hợp lệ.",
+    },
+    "reason_image_display_only": {
+        "en": "The photo may show: {sign}. This model is not reliable enough for that sign "
+        "to change the result on its own. If you notice it, tick the matching symptom and "
+        "run the check again.",
+        "vi": "Ảnh có thể có: {sign}. Model chưa đủ tin cậy để dấu hiệu này tự thay đổi kết "
+        "quả. Nếu bạn thấy có dấu hiệu đó, hãy đánh dấu triệu chứng tương ứng rồi kiểm tra lại.",
     },
     "reason_uncertain_hint": {
         "en": "The photo may show: {sign}. The image result is uncertain, so have it "
